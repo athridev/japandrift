@@ -2,6 +2,7 @@
   "fluid": true,
   "cleanUrls": true,
   "trailingSlash": false,
+  "regions": ["iad1"],
   "headers": [
     {
       "source": "/(.*)",

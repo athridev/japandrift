@@ -69,6 +69,41 @@ function verifyAccessKey(key) {
   return safeEqual(String(key || "").trim(), ACCESS_KEY);
 }
 
+// --- Stateless player tokens -------------------------------------------
+// Player identity is a signed token, NOT a value looked up in storage. This
+// is the core reliability fix: a freshly joined guest can be verified by any
+// instance with zero storage reads, so Blob propagation lag can never cause
+// a spurious "invalid token" that kicks them out of the room.
+const TOKEN_SECRET = process.env.JAPANDRIFT_SESSION_SECRET || "jd-fable5-online-v1";
+const TOKEN_TTL_MS = 60 * 60 * 3 * 1000;
+
+function base64url(value) {
+  return Buffer.from(value).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function signPlayerToken(code, playerId) {
+  const payload = `${normalizeRoomCode(code)}.${playerId}.${Date.now() + TOKEN_TTL_MS}`;
+  const sig = crypto.createHmac("sha256", TOKEN_SECRET).update(payload).digest("hex").slice(0, 32);
+  return `${base64url(payload)}.${sig}`;
+}
+
+function verifyPlayerToken(token, code, playerId) {
+  const [encoded, sig] = String(token || "").split(".");
+  if (!encoded || !sig) return false;
+  let payload;
+  try {
+    payload = Buffer.from(encoded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+  } catch {
+    return false;
+  }
+  const expected = crypto.createHmac("sha256", TOKEN_SECRET).update(payload).digest("hex").slice(0, 32);
+  if (!safeEqual(sig, expected)) return false;
+  const [tokenCode, tokenPlayer, exp] = payload.split(".");
+  if (tokenCode !== normalizeRoomCode(code) || tokenPlayer !== playerId) return false;
+  if (Date.now() > Number(exp)) return false;
+  return true;
+}
+
 function storageMode() {
   return process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "memory";
 }
@@ -168,7 +203,11 @@ function cleanCar(car) {
   return String(car || "s15").slice(0, 12);
 }
 
-function freshRoom(code, hostName, hostCar) {
+// The room doc holds only host-controlled shared fields (status + timing).
+// Player identity/roster lives in per-player docs, which each player rewrites
+// every poll, so presence converges in one poll instead of waiting on this
+// rarely-written doc to propagate.
+function freshRoom(code) {
   const now = Date.now();
   return {
     code,
@@ -180,25 +219,20 @@ function freshRoom(code, hostName, hostCar) {
     startedAt: 0,
     endedAt: 0,
     result: null,
-    players: [
-      {
-        id: "p1",
-        role: "host",
-        name: cleanName(hostName, "Host"),
-        car: cleanCar(hostCar),
-        token: crypto.randomUUID(),
-      },
-    ],
   };
 }
 
-function guestPlayer(name, car) {
+function freshPlayerDoc(id, name, car) {
   return {
-    id: "p2",
-    role: "guest",
-    name: cleanName(name, "Challenger"),
+    id,
+    role: id === "p1" ? "host" : "guest",
+    name: cleanName(name, id === "p1" ? "Host" : "Challenger"),
     car: cleanCar(car),
-    token: crypto.randomUUID(),
+    ready: false,
+    lastSeen: Date.now(),
+    joinedAt: Date.now(),
+    score: 0,
+    progress: 0,
   };
 }
 
@@ -243,25 +277,18 @@ async function saveRoom(room) {
   await putJson(roomPath(room.code), room);
 }
 
-function findPlayer(room, playerId, token) {
-  const player = room.players.find((item) => item.id === playerId);
-  if (!player || !safeEqual(player.token, token)) return null;
-  return player;
-}
-
 module.exports = {
   RACE_DURATION_MS,
   cleanCar,
   cleanName,
   deleteJson,
-  findPlayer,
+  freshPlayerDoc,
   freshRoom,
   generateRoomCode,
   getHeader,
   getJson,
   getRoom,
   getRoomWithRetry,
-  guestPlayer,
   hotGet,
   hotSet,
   normalizeRoomCode,
@@ -272,6 +299,8 @@ module.exports = {
   safeEqual,
   saveRoom,
   sendJson,
+  signPlayerToken,
   storageMode,
   verifyAccessKey,
+  verifyPlayerToken,
 };

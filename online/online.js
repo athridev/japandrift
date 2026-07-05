@@ -312,6 +312,8 @@ async function syncNow() {
     code: state.room.code,
     playerId: state.playerId,
     playerToken: state.playerToken,
+    name: state.myName,
+    car: state.myCar,
     ...sync.pending,
   };
   sync.pending = {};
@@ -322,21 +324,27 @@ async function syncNow() {
   try {
     const result = await api("/api/online/sync", { method: "POST", body: JSON.stringify(body) });
     sync.failures = 0;
-    sync.goneCount = 0;
+    sync.goneSince = 0;
     applySync(result, sentAt);
   } catch (error) {
     // Re-queue lobby-critical flags so a dropped request can't lose them.
     if (body.ready) sync.pending.ready = true;
     if (body.finish) { sync.pending.finish = true; sync.pending.score = body.score; sync.pending.progress = body.progress; }
     sync.failures += 1;
-    // A single "gone" can be a storage propagation blip on a cold instance;
-    // only bail out after it repeats.
-    sync.goneCount = error.body?.gone ? (sync.goneCount || 0) + 1 : 0;
-    if (sync.goneCount >= 3) {
+    // "gone" (missing room / unverified token) is usually just storage still
+    // propagating after a fresh join — NOT a real removal. We just joined
+    // successfully, so only give up if the room stays unreachable for a
+    // sustained stretch; a real ended/expired room stays gone, a blip clears.
+    if (error.body?.gone) {
+      if (!sync.goneSince) sync.goneSince = Date.now();
+    } else {
+      sync.goneSince = 0;
+    }
+    if (sync.goneSince && Date.now() - sync.goneSince > 15000) {
       stopSyncLoop();
-      setMessage(error.message, true);
+      setMessage(error.message || "Lost the room connection.", true);
       setTimeout(() => location.reload(), 2500);
-    } else if (sync.failures >= 3 && state.mode === "lobby") {
+    } else if ((sync.failures >= 3 || sync.goneSince) && state.mode === "lobby") {
       els.status.textContent = "Reconnecting…";
     }
   } finally {
@@ -807,6 +815,9 @@ els.joinTab.addEventListener("click", showJoin);
 function enterRoom(result) {
   state.playerId = result.playerId;
   state.playerToken = result.playerToken;
+  const me = result.room.players.find((player) => player.id === result.playerId);
+  state.myName = me?.name;
+  state.myCar = me?.car;
   showLobby(result.room);
   startSyncLoop();
   if (result.storage === "memory") {

@@ -1,4 +1,7 @@
 const {
+  cleanCar,
+  cleanName,
+  freshPlayerDoc,
   freshRoom,
   generateRoomCode,
   getRoom,
@@ -7,6 +10,7 @@ const {
   putJson,
   saveRoom,
   sendJson,
+  signPlayerToken,
   storageMode,
   verifyAccessKey,
 } = require("./_lib");
@@ -32,22 +36,22 @@ module.exports = async function handler(request, response) {
     let code = generateRoomCode();
     for (let tries = 0; tries < 8 && (await getRoom(code)); tries++) code = generateRoomCode();
 
-    const room = freshRoom(code, body.name, body.car);
-    const host = room.players[0];
+    const room = freshRoom(code);
+    const host = freshPlayerDoc("p1", body.name, body.car);
     await saveRoom(room);
-    await putJson(playerPath(room.code, "p1"), { lastSeen: Date.now() });
+    await putJson(playerPath(code, "p1"), host);
 
     return sendJson(response, 200, {
       ok: true,
       playerId: "p1",
-      playerToken: host.token,
+      playerToken: signPlayerToken(code, "p1"),
       storage: storageMode(),
       room: {
         code: room.code,
         status: room.status,
         raceDurationMs: room.raceDurationMs,
         players: [
-          { id: "p1", name: host.name, car: host.car, role: "host", connected: true, ready: false, score: 0, progress: 0 },
+          { id: "p1", name: cleanName(body.name, "Host"), car: cleanCar(body.car), role: "host", connected: true, ready: false, score: 0, progress: 0 },
         ],
       },
     });

@@ -1,13 +1,15 @@
 const {
+  cleanCar,
+  cleanName,
+  freshPlayerDoc,
   getJson,
   getRoomWithRetry,
-  guestPlayer,
   normalizeRoomCode,
   parseJsonBody,
   playerPath,
   putJson,
-  saveRoom,
   sendJson,
+  signPlayerToken,
   storageMode,
 } = require("./_lib");
 
@@ -32,28 +34,21 @@ module.exports = async function handler(request, response) {
     if (!room || room.status === "ended") return sendJson(response, 404, { error: "Session not found." });
     if (room.status !== "lobby") return sendJson(response, 409, { error: "This race already started." });
 
-    const existingGuest = room.players.find((player) => player.id === "p2");
-    if (existingGuest) {
-      // Allow reclaiming the guest slot only if the previous guest went quiet
-      // (closed tab, dropped connection). An active guest keeps the seat.
-      const guestDoc = (await getJson(playerPath(code, "p2"))) || {};
-      const quietForMs = Date.now() - Number(guestDoc.lastSeen || 0);
-      if (quietForMs < 8000) {
-        return sendJson(response, 409, { error: "This 1v1 room is full." });
-      }
-      room.players = room.players.filter((player) => player.id !== "p2");
+    // The guest slot is taken only if a guest doc exists AND is still active.
+    // A quiet slot (closed tab) can be reclaimed.
+    const existing = await getJson(playerPath(code, "p2"));
+    if (existing && Date.now() - Number(existing.lastSeen || 0) < 8000) {
+      return sendJson(response, 409, { error: "This 1v1 room is full." });
     }
 
-    const guest = guestPlayer(body.name, body.car);
-    room.players.push(guest);
-    await saveRoom(room);
-    await putJson(playerPath(code, "p2"), { lastSeen: Date.now() });
+    const guest = freshPlayerDoc("p2", body.name, body.car);
+    await putJson(playerPath(code, "p2"), guest);
+    const host = await getJson(playerPath(code, "p1"));
 
-    const host = room.players.find((player) => player.id === "p1");
     return sendJson(response, 200, {
       ok: true,
       playerId: "p2",
-      playerToken: guest.token,
+      playerToken: signPlayerToken(code, "p2"),
       storage: storageMode(),
       room: {
         code: room.code,
@@ -61,7 +56,7 @@ module.exports = async function handler(request, response) {
         raceDurationMs: room.raceDurationMs,
         players: [
           { id: "p1", name: host?.name || "Host", car: host?.car || "s15", role: "host", connected: true, ready: false, score: 0, progress: 0 },
-          { id: "p2", name: guest.name, car: guest.car, role: "guest", connected: true, ready: false, score: 0, progress: 0 },
+          { id: "p2", name: cleanName(body.name, "Challenger"), car: cleanCar(body.car), role: "guest", connected: true, ready: false, score: 0, progress: 0 },
         ],
       },
     });
