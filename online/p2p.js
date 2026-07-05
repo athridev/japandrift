@@ -198,6 +198,12 @@
       p2p.connectionOpen = true;
       localEls().status.textContent = "Peer connected";
       startGuestJoinLoop();
+      // A channel just became usable. If we already pressed Ready before any
+      // channel was open (or the working reverse channel opened late), make
+      // sure the other side actually hears about it now.
+      if (state.ready && state.mode === "lobby" && p2p.role === "guest") {
+        sendEverywhere({ type: "ready" });
+      }
     }
     flushRaw();
   }
@@ -209,6 +215,20 @@
         if (state.mode === "lobby" && !p2p.countdownSent) sendEverywhere(payload);
       }, delay);
     });
+  }
+
+  function startReadyResend() {
+    // Keep announcing "ready" over every open channel until the race actually
+    // starts. A single send can be silently dropped if a channel reports open
+    // before its data path is really up, so we retry until mode leaves lobby.
+    let tries = 0;
+    const tick = () => {
+      if (state.mode !== "lobby") return;
+      sendEverywhere({ type: "ready" });
+      if (tries++ >= 20) return;
+      setTimeout(tick, 750);
+    };
+    tick();
   }
 
   function sendGuestJoin() {
@@ -294,6 +314,10 @@
     };
     sendEverywhere(packet);
     handleWs(packet);
+    // The countdown packet carries fixed start timestamps, so re-sending it is
+    // idempotent (the guest ignores it once racing). Retry a few times so a
+    // dropped packet can't leave the guest stuck in the lobby.
+    [300, 800, 1600, 2600].forEach((delay) => setTimeout(() => sendEverywhere(packet), delay));
   }
 
   function showP2PResults(forcedWinnerId = "") {
@@ -393,9 +417,11 @@
   function setupConnection(conn, options = {}) {
     const useForSending = options.useForSending !== false;
     const announceRemote = options.announceRemote !== false;
-    if (!p2p.conn) p2p.conn = conn;
+    if (!p2p.conn) {
+      p2p.conn = conn;
+      p2p.connectionOpen = false;
+    }
     if (useForSending) p2p.sendConn = conn;
-    p2p.connectionOpen = false;
 
     const markOpen = () => {
       markChannelUsable(conn);
@@ -469,7 +495,10 @@
 
     const code = String(form.code || "").trim().toUpperCase();
     p2p.peer = await openPeer();
-    p2p.peer.on("connection", (conn) => setupConnection(conn, { useForSending: false, announceRemote: false }));
+    // The host opens a reverse channel back to us. WebRTC data channels are
+    // bidirectional, so use it for sending too: if our own outgoing channel
+    // never opens (NAT/TURN), our "ready"/state still reaches the host here.
+    p2p.peer.on("connection", (conn) => setupConnection(conn, { useForSending: true, announceRemote: false }));
     state.room = {
       code,
       raceDurationMs: RACE_DURATION_MS,
@@ -529,7 +558,7 @@
     }
     event.currentTarget.textContent = "Ready";
     if (p2p.role === "host") handleFrom("p1", { type: "ready" });
-    else sendLobbyReliable({ type: "ready" });
+    else startReadyResend();
   }, true);
 
   createForm?.addEventListener("submit", (event) => {
