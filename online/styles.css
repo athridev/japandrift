@@ -123,6 +123,19 @@ input:focus, select:focus {
   border-color: #75e8ff;
   box-shadow: 0 0 0 3px rgba(117,232,255,0.16);
 }
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.check-row input {
+  width: 18px;
+  min-height: 18px;
+  accent-color: #ffb14d;
+}
+.check-row span {
+  line-height: 1.25;
+}
 .primary {
   background: linear-gradient(135deg, #ff2f80, #ffb14d);
 }

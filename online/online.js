@@ -183,10 +183,22 @@ function api(path, options = {}) {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   }).then(async (response) => {
-    const body = await response.json().catch(() => ({}));
+    const text = await response.text();
+    let body = {};
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = { error: text.trim().slice(0, 160) };
+      }
+    }
     if (!response.ok) {
-      const error = new Error(body.error || "Request failed.");
+      const fallback = response.status === 404
+        ? "Online backend is not deployed on this domain."
+        : `${response.status} ${response.statusText || "Request failed"}`;
+      const error = new Error(body.error || fallback);
       error.body = body;
+      error.status = response.status;
       throw error;
     }
     return body;
@@ -752,7 +764,7 @@ els.otpForm.addEventListener("submit", async (event) => {
     });
     const result = await api("/api/online/create-room", {
       method: "POST",
-      body: JSON.stringify({ name: otp.name, car: otp.car }),
+      body: JSON.stringify({ name: otp.name, car: otp.car, reset: otp.reset === "on" }),
     });
     state.playerId = result.playerId;
     state.playerToken = result.playerToken;

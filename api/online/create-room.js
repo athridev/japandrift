@@ -1,5 +1,6 @@
 const {
   activePath,
+  deleteJson,
   freshRoom,
   generateRoomCode,
   getActiveRoom,
@@ -8,6 +9,7 @@ const {
   publicRoom,
   putJson,
   requireCreator,
+  roomPath,
   saveRoom,
   sendJson,
   signPlayerToken,
@@ -32,12 +34,23 @@ module.exports = async function handler(request, response) {
   try {
     const active = await getActiveRoom();
     if (active) {
-      return sendJson(response, 409, {
-        error: "You already have an active Japan Drift session.",
-        room: publicRoom(active),
-        playerId: "p1",
-        playerToken: signPlayerToken(active.code, "p1"),
-      });
+      const resetActive = body.reset === true || body.reset === "true" || body.reset === "on";
+      if (!resetActive) {
+        return sendJson(response, 200, {
+          ok: true,
+          reused: true,
+          room: publicRoom(active),
+          playerId: "p1",
+          playerToken: signPlayerToken(active.code, "p1"),
+        });
+      }
+
+      active.status = "ended";
+      active.endedAt = new Date().toISOString();
+      active.resultReason = "creator-reset";
+      await saveRoom(active);
+      await deleteJson(activePath());
+      await deleteJson(roomPath(active.code));
     }
 
     let code = generateRoomCode();

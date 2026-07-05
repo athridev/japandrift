@@ -27,7 +27,7 @@
       <form class="stack" id="create-form">
         <label>
           <span>Email</span>
-          <input name="email" type="email" autocomplete="email" value="adamjaljoly@gmail.com" required />
+          <input name="email" type="email" autocomplete="email" required />
         </label>
         <button class="primary" type="submit">Send OTP</button>
       </form>
@@ -44,6 +44,10 @@
         <label>
           <span>Car</span>
           <select name="car" id="host-car"></select>
+        </label>
+        <label class="check-row">
+          <input name="reset" type="checkbox" />
+          <span>Reset active session</span>
         </label>
         <button class="primary" type="submit">Create Session</button>
       </form>
