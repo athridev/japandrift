@@ -16,7 +16,10 @@
     role: "",
     peer: null,
     conn: null,
+    sendConn: null,
     local: null,
+    remoteMeta: null,
+    reverseStarted: false,
     outbox: [],
     joinAck: false,
     joinLoopStarted: false,
@@ -115,6 +118,9 @@
   }
 
   function resetPeerSession() {
+    p2p.sendConn = null;
+    p2p.remoteMeta = null;
+    p2p.reverseStarted = false;
     p2p.outbox = [];
     p2p.joinAck = false;
     p2p.joinLoopStarted = false;
@@ -122,17 +128,19 @@
   }
 
   function canSendRaw() {
-    return Boolean(p2p.conn && (p2p.conn.open || p2p.connectionOpen));
+    return Boolean((p2p.sendConn && p2p.sendConn.open) || (p2p.conn && (p2p.conn.open || p2p.connectionOpen)));
   }
 
   function trySendRaw(payload) {
-    if (!p2p.conn) return false;
-    try {
-      p2p.conn.send(payload);
-      return true;
-    } catch {
-      return false;
+    const conns = [p2p.sendConn, p2p.conn].filter((conn, index, list) => conn && list.indexOf(conn) === index);
+    for (const conn of conns) {
+      if (!conn.open && !(conn === p2p.conn && p2p.connectionOpen)) continue;
+      try {
+        conn.send(payload);
+        return true;
+      } catch {}
     }
+    return false;
   }
 
   function enqueueRaw(payload) {
@@ -158,8 +166,8 @@
     enqueueRaw(payload);
   }
 
-  function markChannelUsable() {
-    if (!p2p.conn) return;
+  function markChannelUsable(conn = p2p.conn) {
+    if (!conn) return;
     if (!p2p.connectionOpen) {
       p2p.connectionOpen = true;
       localEls().status.textContent = "Peer connected";
@@ -180,6 +188,18 @@
   function sendGuestJoin() {
     sendRaw({ type: "join", player: p2p.local });
     sendRaw({ type: "ping", clientTime: Date.now() });
+  }
+
+  function startReverseConnection(peerId) {
+    if (p2p.role !== "host" || p2p.reverseStarted || !peerId || !p2p.peer?.connect) return;
+    p2p.reverseStarted = true;
+    try {
+      const reverse = p2p.peer.connect(peerId, {
+        reliable: true,
+        metadata: { name: p2p.local?.name, car: p2p.local?.car, reverse: true },
+      });
+      setupConnection(reverse, { useForSending: true, announceRemote: false });
+    } catch {}
   }
 
   function startGuestJoinLoop() {
@@ -271,10 +291,10 @@
   function handleFrom(playerId, msg) {
     if (!msg || !state.room) return;
     if (playerId === "p2" && msg.type !== "join") {
-      ensureGuest(msg.player || p2p.conn?.metadata || {});
+      ensureGuest(msg.player || p2p.remoteMeta || p2p.conn?.metadata || {});
     }
     if (msg.type === "join") {
-      ensureGuest(msg.player || p2p.conn?.metadata || {});
+      ensureGuest(msg.player || p2p.remoteMeta || p2p.conn?.metadata || {});
       broadcast("hello");
       return;
     }
@@ -307,8 +327,8 @@
     }
   }
 
-  function handlePeerMessage(msg) {
-    markChannelUsable();
+  function handlePeerMessage(msg, conn = p2p.conn) {
+    markChannelUsable(conn);
     if (p2p.role === "host") {
       handleFrom("p2", msg);
       return;
@@ -321,8 +341,13 @@
     handleWs(msg);
   }
 
-  function handlePeerDisconnect() {
-    p2p.conn = null;
+  function handlePeerDisconnect(conn = p2p.conn) {
+    if (conn === p2p.sendConn) p2p.sendConn = null;
+    if (conn === p2p.conn) p2p.conn = null;
+    if (p2p.conn || p2p.sendConn) {
+      p2p.connectionOpen = true;
+      return;
+    }
     p2p.connectionOpen = false;
     p2p.outbox = [];
     p2p.joinAck = false;
@@ -339,22 +364,27 @@
     }
   }
 
-  function setupConnection(conn) {
-    p2p.conn = conn;
+  function setupConnection(conn, options = {}) {
+    const useForSending = options.useForSending !== false;
+    const announceRemote = options.announceRemote !== false;
+    if (!p2p.conn) p2p.conn = conn;
+    if (useForSending) p2p.sendConn = conn;
     p2p.connectionOpen = false;
 
     const markOpen = () => {
-      markChannelUsable();
+      markChannelUsable(conn);
     };
 
     conn.on("open", markOpen);
-    conn.on("data", handlePeerMessage);
-    conn.on("close", handlePeerDisconnect);
-    conn.on("error", handlePeerDisconnect);
+    conn.on("data", (msg) => handlePeerMessage(msg, conn));
+    conn.on("close", () => handlePeerDisconnect(conn));
+    conn.on("error", () => handlePeerDisconnect(conn));
 
-    if (p2p.role === "host") {
+    if (p2p.role === "host" && announceRemote) {
       const meta = conn.metadata || {};
+      p2p.remoteMeta = meta;
       handleFrom("p2", { type: "join", player: { name: meta.name, car: meta.car } });
+      startReverseConnection(conn.peer);
     }
 
     setTimeout(() => { if (conn.open) markOpen(); }, 0);
@@ -393,7 +423,7 @@
         setTimeout(() => conn.close(), 400);
         return;
       }
-      setupConnection(conn);
+      setupConnection(conn, { useForSending: false });
     });
     p2p.peer.on("error", (error) => setP2PMessage(error.message || "Peer service error.", true));
     showLobby(state.room);
@@ -413,6 +443,7 @@
 
     const code = String(form.code || "").trim().toUpperCase();
     p2p.peer = await openPeer();
+    p2p.peer.on("connection", (conn) => setupConnection(conn, { useForSending: false, announceRemote: false }));
     state.room = {
       code,
       raceDurationMs: RACE_DURATION_MS,
@@ -420,7 +451,7 @@
     };
     showLobby(state.room);
     localEls().status.textContent = "Connecting to peer room";
-    setupConnection(p2p.peer.connect(p2pPeerId(code), { reliable: false, metadata: { name: p2p.local.name, car: p2p.local.car } }));
+    setupConnection(p2p.peer.connect(p2pPeerId(code), { reliable: true, metadata: { name: p2p.local.name, car: p2p.local.car } }), { useForSending: true, announceRemote: false });
   }
 
   const originalSendWs = sendWs;
