@@ -17,6 +17,10 @@
     peer: null,
     conn: null,
     local: null,
+    outbox: [],
+    joinAck: false,
+    joinLoopStarted: false,
+    connectionOpen: false,
     countdownSent: false,
     resultsSent: false,
   };
@@ -110,8 +114,62 @@
     };
   }
 
+  function resetPeerSession() {
+    p2p.outbox = [];
+    p2p.joinAck = false;
+    p2p.joinLoopStarted = false;
+    p2p.connectionOpen = false;
+  }
+
+  function flushRaw() {
+    if (!p2p.conn?.open) return;
+    const pending = p2p.outbox.splice(0);
+    for (const payload of pending) p2p.conn.send(payload);
+  }
+
   function sendRaw(payload) {
-    if (p2p.conn?.open) p2p.conn.send(payload);
+    if (p2p.conn?.open) {
+      p2p.conn.send(payload);
+      return;
+    }
+    p2p.outbox.push(payload);
+    if (p2p.outbox.length > 80) p2p.outbox.shift();
+  }
+
+  function sendGuestJoin() {
+    sendRaw({ type: "join", player: p2p.local });
+    sendRaw({ type: "ping", clientTime: Date.now() });
+  }
+
+  function startGuestJoinLoop() {
+    if (p2p.joinLoopStarted || p2p.role !== "guest") return;
+    p2p.joinLoopStarted = true;
+    [0, 350, 900, 1800, 3200].forEach((delay) => {
+      setTimeout(() => {
+        if (p2p.joinAck || state.mode === "results") return;
+        sendGuestJoin();
+      }, delay);
+    });
+  }
+
+  function ensureGuest(player = {}) {
+    if (!state.room) return null;
+    let guest = state.room.players.find((item) => item.id === "p2");
+    if (!guest) {
+      guest = makePlayer("p2", player.name, player.car, true);
+      state.room.players.push(guest);
+      return guest;
+    }
+    const ready = Boolean(guest.ready);
+    const score = Number(guest.score || 0);
+    const progress = Number(guest.progress || 0);
+    const finished = Boolean(guest.finished);
+    Object.assign(guest, makePlayer("p2", player.name || guest.name, player.car || guest.car, true));
+    guest.ready = ready;
+    guest.score = score;
+    guest.progress = progress;
+    guest.finished = finished;
+    return guest;
   }
 
   function broadcast(type = "presence") {
@@ -168,14 +226,11 @@
 
   function handleFrom(playerId, msg) {
     if (!msg || !state.room) return;
+    if (playerId === "p2" && msg.type !== "join") {
+      ensureGuest(msg.player || p2p.conn?.metadata || {});
+    }
     if (msg.type === "join") {
-      let guest = state.room.players.find((player) => player.id === "p2");
-      if (!guest) {
-        guest = makePlayer("p2", msg.player?.name, msg.player?.car, true);
-        state.room.players.push(guest);
-      } else {
-        Object.assign(guest, makePlayer("p2", msg.player?.name || guest.name, msg.player?.car || guest.car, true));
-      }
+      ensureGuest(msg.player || p2p.conn?.metadata || {});
       broadcast("hello");
       return;
     }
@@ -213,6 +268,7 @@
       handleFrom("p2", msg);
       return;
     }
+    if (msg.type === "hello") p2p.joinAck = true;
     if (msg.type === "reject") {
       setP2PMessage(msg.reason || "Room is full.", true);
       return;
@@ -221,6 +277,10 @@
   }
 
   function handlePeerDisconnect() {
+    p2p.conn = null;
+    p2p.connectionOpen = false;
+    p2p.outbox = [];
+    p2p.joinAck = false;
     if (!state.room || state.mode === "results") return;
     const remoteId = state.playerId === "p1" ? "p2" : "p1";
     const remote = state.room.players.find((player) => player.id === remoteId);
@@ -236,19 +296,30 @@
 
   function setupConnection(conn) {
     p2p.conn = conn;
-    conn.on("open", () => {
+    p2p.outbox = [];
+    p2p.connectionOpen = false;
+
+    const markOpen = () => {
+      if (p2p.connectionOpen) return;
+      p2p.connectionOpen = true;
       localEls().status.textContent = "Peer connected";
-      if (p2p.role === "host") {
-        const meta = conn.metadata || {};
-        handleFrom("p2", { type: "join", player: { name: meta.name, car: meta.car } });
-      } else {
-        sendRaw({ type: "join", player: p2p.local });
-        sendRaw({ type: "ping", clientTime: Date.now() });
-      }
-    });
+      flushRaw();
+      startGuestJoinLoop();
+    };
+
+    conn.on("open", markOpen);
     conn.on("data", handlePeerMessage);
     conn.on("close", handlePeerDisconnect);
     conn.on("error", handlePeerDisconnect);
+
+    if (p2p.role === "host") {
+      const meta = conn.metadata || {};
+      handleFrom("p2", { type: "join", player: { name: meta.name, car: meta.car } });
+    }
+
+    setTimeout(() => { if (conn.open) markOpen(); }, 0);
+    setTimeout(() => { if (conn.open) markOpen(); }, 300);
+    setTimeout(() => { if (conn.open) markOpen(); }, 900);
   }
 
   async function createRoom(form) {
@@ -258,6 +329,7 @@
     state.playerId = "p1";
     state.playerToken = "p2p-host";
     p2p.local = makePlayer("p1", form.name, form.car, true);
+    resetPeerSession();
     p2p.countdownSent = false;
     p2p.resultsSent = false;
     state.serverOffset = 0;
@@ -276,7 +348,7 @@
 
     state.room = { code, raceDurationMs: RACE_DURATION_MS, players: [p2p.local] };
     p2p.peer.on("connection", (conn) => {
-      if (p2p.conn?.open) {
+      if (p2p.conn) {
         conn.on("open", () => conn.send({ type: "reject", reason: "Room already has two drivers." }));
         setTimeout(() => conn.close(), 400);
         return;
@@ -295,6 +367,7 @@
     state.playerId = "p2";
     state.playerToken = "p2p-guest";
     p2p.local = makePlayer("p2", form.name, form.car, true);
+    resetPeerSession();
     p2p.countdownSent = false;
     p2p.resultsSent = false;
 
