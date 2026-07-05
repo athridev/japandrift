@@ -97,7 +97,6 @@ const els = {
   createTab: document.querySelector("#create-tab"),
   joinTab: document.querySelector("#join-tab"),
   createForm: document.querySelector("#create-form"),
-  otpForm: document.querySelector("#otp-form"),
   joinForm: document.querySelector("#join-form"),
   hostCar: document.querySelector("#host-car"),
   guestCar: document.querySelector("#guest-car"),
@@ -148,11 +147,9 @@ resize();
 
 const state = {
   mode: "landing",
-  challengeId: "",
   room: null,
   playerId: "",
   playerToken: "",
-  socket: null,
   car: null,
   remote: null,
   remoteHistory: [],
@@ -213,7 +210,6 @@ function showCreate() {
   els.createTab.classList.add("is-active");
   els.joinTab.classList.remove("is-active");
   els.createForm.classList.remove("is-hidden");
-  els.otpForm.classList.add("is-hidden");
   els.joinForm.classList.add("is-hidden");
   setMessage("");
 }
@@ -222,7 +218,6 @@ function showJoin() {
   els.joinTab.classList.add("is-active");
   els.createTab.classList.remove("is-active");
   els.createForm.classList.add("is-hidden");
-  els.otpForm.classList.add("is-hidden");
   els.joinForm.classList.remove("is-hidden");
   setMessage("");
 }
@@ -255,53 +250,130 @@ function escapeHtml(value) {
   return String(value || "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
 
-function wsUrl() {
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const q = new URLSearchParams({
-    code: state.room.code,
-    playerId: state.playerId,
-    token: state.playerToken,
-  });
-  return `${proto}//${location.host}/api/online/ws?${q}`;
-}
+// --- HTTP sync transport -------------------------------------------------
+// Vercel Functions can't hold a reliable per-room in-memory relay, so both
+// players talk through one polled endpoint backed by shared storage. sendWs
+// keeps its old name because the engine bridge (full-engine.js) wraps it.
 
-function connectSocket() {
-  if (state.socket) state.socket.close();
-  state.socket = new WebSocket(wsUrl());
-  state.socket.addEventListener("open", () => {
-    els.status.textContent = "Realtime connected";
-    sendWs({ type: "ping", clientTime: Date.now() });
-  });
-  state.socket.addEventListener("message", (event) => {
-    const msg = JSON.parse(event.data);
-    handleWs(msg);
-  });
-  state.socket.addEventListener("close", () => {
-    if (state.mode !== "results") {
-      els.status.textContent = "Realtime reconnecting";
-      setTimeout(() => state.room && connectSocket(), 1200);
-    }
-  });
-}
+const sync = {
+  pending: {},
+  timer: 0,
+  running: false,
+  inFlight: false,
+  lastOpponentStateAt: 0,
+  failures: 0,
+};
 
 function sendWs(payload) {
-  if (state.socket && state.socket.readyState === WebSocket.OPEN) {
-    state.socket.send(JSON.stringify(payload));
+  if (!payload || !state.room) return;
+  if (payload.type === "ready") {
+    sync.pending.ready = true;
+    syncNow();
+  } else if (payload.type === "state") {
+    sync.pending.state = payload.state;
+  } else if (payload.type === "score") {
+    sync.pending.score = Math.round(payload.score || 0);
+    sync.pending.progress = Number(payload.progress || 0);
+  } else if (payload.type === "finish") {
+    sync.pending.finish = true;
+    sync.pending.score = Math.round(payload.score || 0);
+    sync.pending.progress = Number(payload.progress || 0);
+    syncNow();
   }
+}
+
+function syncInterval() {
+  if (state.mode === "race") return 300;
+  if (state.mode === "lobby" && state.room?.status === "countdown") return 500;
+  return 1000;
+}
+
+function scheduleSync() {
+  clearTimeout(sync.timer);
+  if (!sync.running) return;
+  sync.timer = setTimeout(syncNow, syncInterval());
+}
+
+function startSyncLoop() {
+  sync.running = true;
+  sync.failures = 0;
+  syncNow();
+}
+
+function stopSyncLoop() {
+  sync.running = false;
+  clearTimeout(sync.timer);
+}
+
+async function syncNow() {
+  if (!sync.running || sync.inFlight || !state.room) return;
+  sync.inFlight = true;
+  const body = {
+    code: state.room.code,
+    playerId: state.playerId,
+    playerToken: state.playerToken,
+    ...sync.pending,
+  };
+  sync.pending = {};
+  // Storage propagation can lag between server instances; re-assert the
+  // ready flag every lobby poll (idempotent) so it can never get lost.
+  if (state.ready && state.mode === "lobby") body.ready = true;
+  const sentAt = Date.now();
+  try {
+    const result = await api("/api/online/sync", { method: "POST", body: JSON.stringify(body) });
+    sync.failures = 0;
+    sync.goneCount = 0;
+    applySync(result, sentAt);
+  } catch (error) {
+    // Re-queue lobby-critical flags so a dropped request can't lose them.
+    if (body.ready) sync.pending.ready = true;
+    if (body.finish) { sync.pending.finish = true; sync.pending.score = body.score; sync.pending.progress = body.progress; }
+    sync.failures += 1;
+    // A single "gone" can be a storage propagation blip on a cold instance;
+    // only bail out after it repeats.
+    sync.goneCount = error.body?.gone ? (sync.goneCount || 0) + 1 : 0;
+    if (sync.goneCount >= 3) {
+      stopSyncLoop();
+      setMessage(error.message, true);
+      setTimeout(() => location.reload(), 2500);
+    } else if (sync.failures >= 3 && state.mode === "lobby") {
+      els.status.textContent = "Reconnecting…";
+    }
+  } finally {
+    sync.inFlight = false;
+    scheduleSync();
+  }
+}
+
+function applySync(result, sentAt) {
+  const rtt = Date.now() - sentAt;
+  state.serverOffset = Number(result.serverTime || Date.now()) - (sentAt + rtt / 2);
+  const room = result.room;
+  if (!room) return;
+  state.room = room;
+  state.raceDurationMs = room.raceDurationMs || state.raceDurationMs;
+
+  if (result.opponent?.state && result.opponent.stateAt !== sync.lastOpponentStateAt) {
+    sync.lastOpponentStateAt = result.opponent.stateAt;
+    handleWs({ type: "state", playerId: result.opponent.id, state: result.opponent.state });
+  }
+
+  if (room.status === "ended" && room.result) {
+    if (state.mode !== "results") handleWs({ type: "results", result: room.result });
+    stopSyncLoop();
+    return;
+  }
+
+  if ((room.status === "countdown" || room.status === "racing") && state.mode === "lobby") {
+    handleWs({ type: "countdown", countdownAt: room.countdownAt, startedAt: room.startedAt, room });
+    return;
+  }
+
+  if (state.mode === "lobby") renderLobby();
 }
 
 function handleWs(msg) {
-  if (msg.type === "pong") {
-    state.serverOffset = Number(msg.serverTime || Date.now()) - Date.now();
-    return;
-  }
   if (msg.room) state.room = msg.room;
-  if (msg.type === "hello") {
-    state.room = msg.room;
-    state.raceDurationMs = msg.room.raceDurationMs || 120000;
-    renderLobby();
-    return;
-  }
   if (msg.type === "presence" || msg.type === "ready") {
     if (state.room) state.room.players = msg.players || state.room.players;
     renderLobby();
@@ -732,53 +804,26 @@ function showResults(result) {
 els.createTab.addEventListener("click", showCreate);
 els.joinTab.addEventListener("click", showJoin);
 
+function enterRoom(result) {
+  state.playerId = result.playerId;
+  state.playerToken = result.playerToken;
+  showLobby(result.room);
+  startSyncLoop();
+  if (result.storage === "memory") {
+    setMessage("Note: storage is not connected on the server, rooms may not survive restarts.");
+  }
+}
+
 els.createForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  setMessage("Sending code...");
+  setMessage("Creating session...");
   try {
-    const result = await api("/api/online/request-otp", {
+    const result = await api("/api/online/create-room", {
       method: "POST",
       body: JSON.stringify(formData(els.createForm)),
     });
-    state.challengeId = result.challengeId;
-    els.createForm.classList.add("is-hidden");
-    els.otpForm.classList.remove("is-hidden");
-    setMessage(result.devCode ? `Local dev OTP: ${result.devCode}` : `Code sent to ${result.sentTo}.`);
+    enterRoom(result);
   } catch (error) {
-    setMessage(error.message, true);
-  }
-});
-
-els.otpForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  setMessage("Verifying...");
-  const otp = formData(els.otpForm);
-  try {
-    await api("/api/online/verify-otp", {
-      method: "POST",
-      body: JSON.stringify({
-        email: formData(els.createForm).email,
-        challengeId: state.challengeId,
-        code: otp.code,
-      }),
-    });
-    const result = await api("/api/online/create-room", {
-      method: "POST",
-      body: JSON.stringify({ name: otp.name, car: otp.car, reset: otp.reset === "on" }),
-    });
-    state.playerId = result.playerId;
-    state.playerToken = result.playerToken;
-    sessionStorage.setItem("jdoPlayer", JSON.stringify({ playerId: state.playerId, playerToken: state.playerToken, room: result.room }));
-    showLobby(result.room);
-    connectSocket();
-  } catch (error) {
-    if (error.body?.room && error.body?.playerToken) {
-      state.playerId = error.body.playerId;
-      state.playerToken = error.body.playerToken;
-      showLobby(error.body.room);
-      connectSocket();
-      return;
-    }
     setMessage(error.message, true);
   }
 });
@@ -791,25 +836,33 @@ els.joinForm.addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify(formData(els.joinForm)),
     });
-    state.playerId = result.playerId;
-    state.playerToken = result.playerToken;
-    sessionStorage.setItem("jdoPlayer", JSON.stringify({ playerId: state.playerId, playerToken: state.playerToken, room: result.room }));
-    showLobby(result.room);
-    connectSocket();
+    enterRoom(result);
   } catch (error) {
     setMessage(error.message, true);
   }
 });
 
 els.ready.addEventListener("click", () => {
+  if (!state.room || state.mode !== "lobby") return;
   state.ready = true;
   els.ready.textContent = "Ready";
+  const me = state.room.players.find((player) => player.id === state.playerId);
+  if (me) me.ready = true;
+  renderLobby();
   sendWs({ type: "ready" });
 });
 
 els.leave.addEventListener("click", () => {
-  if (state.socket) state.socket.close();
-  location.reload();
+  stopSyncLoop();
+  if (state.room) {
+    fetch("/api/online/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({ code: state.room.code, playerId: state.playerId, playerToken: state.playerToken, leave: true }),
+    }).catch(() => null);
+  }
+  setTimeout(() => location.reload(), 120);
 });
 
 els.copyCode.addEventListener("click", async () => {
@@ -849,15 +902,3 @@ addEventListener("gamepaddisconnected", () => {
   els.status.textContent = "Touch controls ready";
 });
 
-(async function restoreSession() {
-  try {
-    const result = await api("/api/online/session", { method: "GET", headers: {} });
-    if (result.activeRoom) {
-      els.createForm.classList.add("is-hidden");
-      els.otpForm.classList.remove("is-hidden");
-      setMessage(`Active room ${result.activeRoom.code} already exists. Join it or end it from the active session.`);
-    }
-  } catch {
-    // Signed-out landing is the normal state.
-  }
-})();

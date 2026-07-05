@@ -1,18 +1,14 @@
 const {
-  activePath,
-  deleteJson,
   freshRoom,
   generateRoomCode,
-  getActiveRoom,
   getRoom,
   parseJsonBody,
-  publicRoom,
+  playerPath,
   putJson,
-  requireCreator,
-  roomPath,
   saveRoom,
   sendJson,
-  signPlayerToken,
+  storageMode,
+  verifyAccessKey,
 } = require("./_lib");
 
 module.exports = async function handler(request, response) {
@@ -21,9 +17,6 @@ module.exports = async function handler(request, response) {
     return sendJson(response, 405, { error: "Method not allowed." });
   }
 
-  const session = requireCreator(request, response);
-  if (!session) return;
-
   let body;
   try {
     body = await parseJsonBody(request);
@@ -31,40 +24,32 @@ module.exports = async function handler(request, response) {
     return sendJson(response, error.status || 400, { error: error.message || "Invalid request." });
   }
 
+  if (!verifyAccessKey(body.accessKey)) {
+    return sendJson(response, 403, { error: "Invalid access key." });
+  }
+
   try {
-    const active = await getActiveRoom();
-    if (active) {
-      const resetActive = body.reset === true || body.reset === "true" || body.reset === "on";
-      if (!resetActive) {
-        return sendJson(response, 200, {
-          ok: true,
-          reused: true,
-          room: publicRoom(active),
-          playerId: "p1",
-          playerToken: signPlayerToken(active.code, "p1"),
-        });
-      }
-
-      active.status = "ended";
-      active.endedAt = new Date().toISOString();
-      active.resultReason = "creator-reset";
-      await saveRoom(active);
-      await deleteJson(activePath());
-      await deleteJson(roomPath(active.code));
-    }
-
     let code = generateRoomCode();
     for (let tries = 0; tries < 8 && (await getRoom(code)); tries++) code = generateRoomCode();
 
-    const room = freshRoom(code, body.name || "Adam", body.car || "s15");
+    const room = freshRoom(code, body.name, body.car);
+    const host = room.players[0];
     await saveRoom(room);
-    await putJson(activePath(), { code: room.code, creator: session.sub, createdAt: room.createdAt });
+    await putJson(playerPath(room.code, "p1"), { lastSeen: Date.now() });
 
     return sendJson(response, 200, {
       ok: true,
-      room: publicRoom(room),
       playerId: "p1",
-      playerToken: signPlayerToken(room.code, "p1"),
+      playerToken: host.token,
+      storage: storageMode(),
+      room: {
+        code: room.code,
+        status: room.status,
+        raceDurationMs: room.raceDurationMs,
+        players: [
+          { id: "p1", name: host.name, car: host.car, role: "host", connected: true, ready: false, score: 0, progress: 0 },
+        ],
+      },
     });
   } catch (error) {
     console.error("JAPAN_DRIFT_CREATE_ROOM_ERROR", error);

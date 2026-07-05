@@ -1,27 +1,43 @@
 const crypto = require("node:crypto");
 
-const ALLOWED_CREATOR_EMAIL = "adamjaljoly@gmail.com";
-const CREATOR_COOKIE = "jdo_creator_session";
-const OTP_TTL_SECONDS = 60 * 10;
-const SESSION_TTL_SECONDS = 60 * 60 * 6;
+// Room creation is gated by a shared access key instead of email OTP so the
+// online mode has zero third-party dependencies (no Resend, no cookies).
+const ACCESS_KEY = process.env.JAPANDRIFT_ACCESS_KEY || "fable5magic";
 const ROOM_TTL_SECONDS = 60 * 60 * 3;
+const RACE_DURATION_MS = 120000;
 const MAX_JSON_BODY = 25000;
-const MAX_OTP_ATTEMPTS = 5;
 const ROOM_PREFIX = "japandrift-online/";
+
+// In-instance hot cache. With Fluid compute both players usually poll the
+// same warm instance, so opponent state is served from memory with no Blob
+// read latency. Blob remains the source of truth across instances.
+function hotStore() {
+  if (!globalThis.__JD_HOT__) globalThis.__JD_HOT__ = new Map();
+  return globalThis.__JD_HOT__;
+}
+
+function hotGet(key) {
+  return hotStore().get(key) || null;
+}
+
+function hotSet(key, value) {
+  const store = hotStore();
+  store.set(key, value);
+  if (store.size > 500) {
+    const oldest = store.keys().next().value;
+    store.delete(oldest);
+  }
+  return value;
+}
 
 function getHeader(request, name) {
   return request.headers?.[name] || request.headers?.[name.toLowerCase()] || "";
 }
 
-function setJsonHeaders(response) {
+function sendJson(response, status, payload) {
   response.setHeader("Cache-Control", "no-store");
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.setHeader("X-Content-Type-Options", "nosniff");
-  response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-}
-
-function sendJson(response, status, payload) {
-  setJsonHeaders(response);
   return response.status(status).json(payload);
 }
 
@@ -32,43 +48,14 @@ async function parseJsonBody(request) {
     error.status = 413;
     throw error;
   }
-
   const contentType = String(getHeader(request, "content-type"));
   if (!contentType.includes("application/json")) {
     const error = new Error("Send JSON.");
     error.status = 415;
     throw error;
   }
-
   if (typeof request.body === "string") return JSON.parse(request.body || "{}");
   return request.body || {};
-}
-
-function base64url(value) {
-  return Buffer.from(value)
-    .toString("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-}
-
-function fromBase64url(value) {
-  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-  return Buffer.from(padded, "base64").toString("utf8");
-}
-
-function appSecret() {
-  const value =
-    process.env.JAPANDRIFT_SESSION_SECRET ||
-    process.env.ADMIN_SESSION_SECRET ||
-    process.env.CRON_SECRET;
-  if (!value) throw new Error("JAPANDRIFT_SESSION_SECRET is not configured.");
-  return value;
-}
-
-function hmac(value, secret = appSecret()) {
-  return crypto.createHmac("sha256", secret).update(value).digest("hex");
 }
 
 function safeEqual(left, right) {
@@ -78,93 +65,12 @@ function safeEqual(left, right) {
   return crypto.timingSafeEqual(a, b);
 }
 
-function signToken(payload) {
-  const encoded = base64url(JSON.stringify(payload));
-  return `${encoded}.${hmac(encoded)}`;
+function verifyAccessKey(key) {
+  return safeEqual(String(key || "").trim(), ACCESS_KEY);
 }
 
-function verifyToken(token) {
-  const [encoded, signature] = String(token || "").split(".");
-  if (!encoded || !signature || !safeEqual(hmac(encoded), signature)) return null;
-  const payload = JSON.parse(fromBase64url(encoded));
-  if (!payload.exp || Date.now() > payload.exp * 1000) return null;
-  return payload;
-}
-
-function parseCookies(request) {
-  return Object.fromEntries(
-    String(getHeader(request, "cookie"))
-      .split(";")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => {
-        const index = part.indexOf("=");
-        if (index < 0) return [part, ""];
-        return [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
-      }),
-  );
-}
-
-function isLocalRequest(request) {
-  const host = String(getHeader(request, "host"));
-  return host.startsWith("localhost") || host.startsWith("127.0.0.1");
-}
-
-function setCreatorCookie(request, response, email) {
-  const now = Math.floor(Date.now() / 1000);
-  const token = signToken({
-    sub: email,
-    role: "creator",
-    iat: now,
-    exp: now + SESSION_TTL_SECONDS,
-  });
-  const secure = isLocalRequest(request) ? "" : " Secure;";
-  response.setHeader(
-    "Set-Cookie",
-    `${CREATOR_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly;${secure} SameSite=Strict; Max-Age=${SESSION_TTL_SECONDS}`,
-  );
-}
-
-function clearCreatorCookie(response) {
-  response.setHeader(
-    "Set-Cookie",
-    `${CREATOR_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`,
-  );
-}
-
-function getCreatorSession(request) {
-  const cookies = parseCookies(request);
-  const session = verifyToken(cookies[CREATOR_COOKIE]);
-  if (!session || session.role !== "creator" || session.sub !== ALLOWED_CREATOR_EMAIL) return null;
-  return session;
-}
-
-function requireCreator(request, response) {
-  const session = getCreatorSession(request);
-  if (!session) {
-    sendJson(response, 401, { error: "Creator verification required." });
-    return null;
-  }
-  return session;
-}
-
-function signPlayerToken(code, playerId) {
-  const now = Math.floor(Date.now() / 1000);
-  return signToken({
-    room: normalizeRoomCode(code),
-    playerId,
-    role: "player",
-    iat: now,
-    exp: now + ROOM_TTL_SECONDS,
-  });
-}
-
-function verifyPlayerToken(token, code, playerId) {
-  const payload = verifyToken(token);
-  if (!payload || payload.role !== "player") return null;
-  if (normalizeRoomCode(payload.room) !== normalizeRoomCode(code)) return null;
-  if (payload.playerId !== playerId) return null;
-  return payload;
+function storageMode() {
+  return process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "memory";
 }
 
 function localStore() {
@@ -176,7 +82,7 @@ function localStore() {
 
 async function putJson(pathname, payload) {
   const body = JSON.stringify(payload);
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  if (storageMode() === "memory") {
     localStore().set(pathname, body);
     return;
   }
@@ -185,13 +91,37 @@ async function putJson(pathname, payload) {
     access: "private",
     allowOverwrite: true,
     contentType: "application/json",
+    cacheControlMaxAge: 60,
   });
 }
 
+function blobStoreHost() {
+  const token = String(process.env.BLOB_READ_WRITE_TOKEN || "");
+  const match = token.match(/^vercel_blob_rw_([A-Za-z0-9]+)_/);
+  return match ? `${match[1].toLowerCase()}.private.blob.vercel-storage.com` : null;
+}
+
 async function getJson(pathname) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  if (storageMode() === "memory") {
     const raw = localStore().get(pathname);
     return raw ? JSON.parse(raw) : null;
+  }
+  // Read straight from the store origin with a unique query so the CDN can
+  // never serve a cached (or negatively cached) copy. Freshness here is what
+  // the whole sync protocol stands on.
+  const host = blobStoreHost();
+  if (host) {
+    try {
+      const bust = `${Date.now()}-${crypto.randomInt(1e9)}`;
+      const response = await fetch(`https://${host}/${pathname}?nc=${bust}`, {
+        headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
+        cache: "no-store",
+      });
+      if (response.status === 404) return null;
+      if (response.ok) return await response.json();
+    } catch (error) {
+      console.error("JDO_BLOB_DIRECT_READ_ERROR", error.message);
+    }
   }
   const { get } = await import("@vercel/blob");
   const stored = await get(pathname, { access: "private" });
@@ -200,28 +130,12 @@ async function getJson(pathname) {
 }
 
 async function deleteJson(pathname) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  if (storageMode() === "memory") {
     localStore().delete(pathname);
     return;
   }
   const { del } = await import("@vercel/blob");
   await del(pathname);
-}
-
-function roomPath(code) {
-  return `${ROOM_PREFIX}rooms/${normalizeRoomCode(code)}.json`;
-}
-
-function activePath() {
-  return `${ROOM_PREFIX}active-creator.json`;
-}
-
-function challengePath(challengeId) {
-  return `${ROOM_PREFIX}otp/${challengeId}.json`;
-}
-
-function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
 }
 
 function normalizeRoomCode(code) {
@@ -238,108 +152,20 @@ function generateRoomCode() {
   return code;
 }
 
-function otpHash(challengeId, code) {
-  return hmac(`${challengeId}:${code}`);
+function roomPath(code) {
+  return `${ROOM_PREFIX}rooms/${normalizeRoomCode(code)}.json`;
 }
 
-async function createOtpChallenge(email) {
-  const challengeId = crypto.randomUUID();
-  const code = String(crypto.randomInt(100000, 1000000));
-  const expiresAt = new Date(Date.now() + OTP_TTL_SECONDS * 1000).toISOString();
-  await putJson(challengePath(challengeId), {
-    challengeId,
-    email,
-    hash: otpHash(challengeId, code),
-    attempts: 0,
-    expiresAt,
-    createdAt: new Date().toISOString(),
-  });
-  return { challengeId, code, expiresAt };
+function playerPath(code, playerId) {
+  return `${ROOM_PREFIX}rooms/${normalizeRoomCode(code)}-${playerId}.json`;
 }
 
-async function verifyOtpChallenge(challengeId, code) {
-  const pathname = challengePath(challengeId);
-  const challenge = await getJson(pathname);
-  if (!challenge) return false;
-  if (Date.now() > Date.parse(challenge.expiresAt)) {
-    await deleteJson(pathname);
-    return false;
-  }
-  if (Number(challenge.attempts || 0) >= MAX_OTP_ATTEMPTS) {
-    await deleteJson(pathname);
-    return false;
-  }
-  const valid = safeEqual(otpHash(challengeId, String(code || "")), challenge.hash);
-  if (!valid) {
-    await putJson(pathname, { ...challenge, attempts: Number(challenge.attempts || 0) + 1 });
-    return false;
-  }
-  await deleteJson(pathname);
-  return challenge.email === ALLOWED_CREATOR_EMAIL;
+function cleanName(name, fallback) {
+  return String(name || fallback).trim().slice(0, 20) || fallback;
 }
 
-async function sendOtpEmail(code) {
-  const from =
-    process.env.JAPANDRIFT_EMAIL_FROM ||
-    process.env.ADMIN_EMAIL_FROM ||
-    process.env.LEAD_REPORT_FROM ||
-    "Japan Drift <onboarding@resend.dev>";
-
-  if (!process.env.RESEND_API_KEY) {
-    if (process.env.VERCEL_ENV === "production") {
-      throw new Error("RESEND_API_KEY is not configured.");
-    }
-    console.log(`JAPAN_DRIFT_DEV_OTP ${code}`);
-    return { devCode: code };
-  }
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [ALLOWED_CREATOR_EMAIL],
-      subject: "Japan Drift Online creator code",
-      text: `Your Japan Drift Online creator code is ${code}. It expires in 10 minutes.`,
-    }),
-  });
-
-  if (!response.ok) {
-    const details = await response.text();
-    throw new Error(`Resend failed with status ${response.status}: ${details}`);
-  }
-  return {};
-}
-
-function publicRoom(room) {
-  if (!room) return null;
-  return {
-    code: room.code,
-    status: room.status,
-    createdAt: room.createdAt,
-    expiresAt: room.expiresAt,
-    countdownAt: room.countdownAt || null,
-    startedAt: room.startedAt || null,
-    endedAt: room.endedAt || null,
-    raceDurationMs: room.raceDurationMs,
-    winnerId: room.winnerId || null,
-    resultReason: room.resultReason || "",
-    players: room.players.map((player) => ({
-      id: player.id,
-      name: player.name,
-      car: player.car,
-      role: player.role,
-      connected: Boolean(player.connected),
-      ready: Boolean(player.ready),
-      score: Number(player.score || 0),
-      progress: Number(player.progress || 0),
-      finishedAt: player.finishedAt || null,
-      lastSeen: player.lastSeen || null,
-    })),
-  };
+function cleanCar(car) {
+  return String(car || "s15").slice(0, 12);
 }
 
 function freshRoom(code, hostName, hostCar) {
@@ -347,79 +173,105 @@ function freshRoom(code, hostName, hostCar) {
   return {
     code,
     status: "lobby",
-    createdAt: new Date(now).toISOString(),
-    updatedAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + ROOM_TTL_SECONDS * 1000).toISOString(),
-    raceDurationMs: 120000,
+    createdAt: now,
+    expiresAt: now + ROOM_TTL_SECONDS * 1000,
+    raceDurationMs: RACE_DURATION_MS,
+    countdownAt: 0,
+    startedAt: 0,
+    endedAt: 0,
+    result: null,
     players: [
       {
         id: "p1",
         role: "host",
-        name: String(hostName || "Host").trim().slice(0, 20) || "Host",
-        car: String(hostCar || "s15").slice(0, 20),
-        connected: false,
-        ready: false,
-        score: 0,
-        progress: 0,
+        name: cleanName(hostName, "Host"),
+        car: cleanCar(hostCar),
+        token: crypto.randomUUID(),
       },
     ],
-    events: [],
   };
 }
 
-async function getRoom(code) {
-  const room = await getJson(roomPath(code));
-  if (!room) return null;
-  if (Date.now() > Date.parse(room.expiresAt)) {
-    await deleteJson(roomPath(code));
-    const active = await getJson(activePath());
-    if (active?.code === room.code) await deleteJson(activePath());
-    return null;
+function guestPlayer(name, car) {
+  return {
+    id: "p2",
+    role: "guest",
+    name: cleanName(name, "Challenger"),
+    car: cleanCar(car),
+    token: crypto.randomUUID(),
+  };
+}
+
+async function getRoom(code, { fresh = false } = {}) {
+  const key = roomPath(code);
+  // Serve the hot copy briefly, but only stamp readAt on REAL blob reads —
+  // stamping on cache hits would let steady polling keep a stale room alive
+  // forever. Callers pass fresh:true to force a blob read (e.g. before
+  // rejecting a player token that might come from a just-joined guest).
+  const hot = hotGet(key);
+  if (!fresh && hot && Date.now() - hot.readAt < 1500) {
+    if (Date.now() > hot.room.expiresAt) return null;
+    return hot.room;
   }
+  const room = await getJson(key);
+  if (!room) return null;
+  if (Date.now() > room.expiresAt) return null;
+  // Never replace a newer local copy with an older blob read.
+  if (hot && Number(hot.room.updatedAt || 0) > Number(room.updatedAt || 0)) {
+    hotSet(key, { room: hot.room, readAt: Date.now() });
+    return hot.room;
+  }
+  hotSet(key, { room, readAt: Date.now() });
   return room;
+}
+
+// Blob writes propagate asynchronously (measured 0.3-2s). A room that was
+// just created can legitimately 404 on another instance, so callers that
+// KNOW the room should exist retry briefly before giving up.
+async function getRoomWithRetry(code, attempts = 4, delayMs = 600) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const room = await getRoom(code);
+    if (room) return room;
+    if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return null;
 }
 
 async function saveRoom(room) {
-  room.updatedAt = new Date().toISOString();
+  room.updatedAt = Date.now();
+  hotSet(roomPath(room.code), { room, readAt: Date.now() });
   await putJson(roomPath(room.code), room);
 }
 
-async function getActiveRoom() {
-  const active = await getJson(activePath());
-  if (!active?.code) return null;
-  const room = await getRoom(active.code);
-  if (!room || room.status === "ended") {
-    await deleteJson(activePath());
-    return null;
-  }
-  return room;
+function findPlayer(room, playerId, token) {
+  const player = room.players.find((item) => item.id === playerId);
+  if (!player || !safeEqual(player.token, token)) return null;
+  return player;
 }
 
 module.exports = {
-  ALLOWED_CREATOR_EMAIL,
-  clearCreatorCookie,
-  createOtpChallenge,
+  RACE_DURATION_MS,
+  cleanCar,
+  cleanName,
   deleteJson,
+  findPlayer,
   freshRoom,
   generateRoomCode,
-  getActiveRoom,
-  getCreatorSession,
   getHeader,
   getJson,
   getRoom,
-  normalizeEmail,
+  getRoomWithRetry,
+  guestPlayer,
+  hotGet,
+  hotSet,
   normalizeRoomCode,
   parseJsonBody,
-  publicRoom,
+  playerPath,
   putJson,
-  requireCreator,
   roomPath,
-  activePath,
+  safeEqual,
   saveRoom,
   sendJson,
-  sendOtpEmail,
-  setCreatorCookie,
-  signPlayerToken,
-  verifyOtpChallenge,
-  verifyPlayerToken,
+  storageMode,
+  verifyAccessKey,
 };

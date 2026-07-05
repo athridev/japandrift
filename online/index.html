@@ -2,21 +2,27 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <base href="/japandrift/online/" />
+  <script>
+    // The online game lives on Vercel. GitHub Pages keeps only the offline
+    // game; anyone landing on the old online URL is sent to the new home.
+    if (location.hostname.endsWith("github.io")) {
+      location.replace("https://japandrift.vercel.app/online");
+    }
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <meta name="theme-color" content="#120816" />
   <title>Japan Drift Online</title>
-  <link rel="stylesheet" href="styles.css?v=20260705-8" />
+  <link rel="stylesheet" href="/online/styles.css?v=vercel-1" />
 </head>
 <body>
-  <iframe id="offline-game" class="offline-game" src="about:blank" title="Japan Drift"></iframe>
+  <iframe id="offline-game" class="offline-game" title="Japan Drift"></iframe>
   <canvas id="game"></canvas>
 
   <main class="shell" id="shell">
     <section class="brand">
       <p class="eyebrow">Ebisu Circuit Online</p>
       <h1>Japan Drift 1v1</h1>
-      <p class="status-line" id="net-status">Secure room setup</p>
+      <p class="status-line" id="net-status">Room setup</p>
     </section>
 
     <section class="panel" id="landing-panel">
@@ -27,16 +33,8 @@
 
       <form class="stack" id="create-form">
         <label>
-          <span>Email</span>
-          <input name="email" type="email" autocomplete="email" required />
-        </label>
-        <button class="primary" type="submit">Send OTP</button>
-      </form>
-
-      <form class="stack is-hidden" id="otp-form">
-        <label>
-          <span>OTP Code</span>
-          <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required />
+          <span>Access Key</span>
+          <input name="accessKey" type="password" autocomplete="off" required />
         </label>
         <label>
           <span>Driver Name</span>
@@ -45,10 +43,6 @@
         <label>
           <span>Car</span>
           <select name="car" id="host-car"></select>
-        </label>
-        <label class="check-row">
-          <input name="reset" type="checkbox" />
-          <span>Reset active session</span>
         </label>
         <button class="primary" type="submit">Create Session</button>
       </form>
@@ -115,8 +109,7 @@
     </div>
   </section>
 
-  <script src="online.js?v=20260705-8" defer></script>
-  <script src="full-engine.js?v=20260705-8" defer></script>
-  <script src="p2p.js?v=20260705-8" defer></script>
+  <script src="/online/online.js?v=vercel-1" defer></script>
+  <script src="/online/full-engine.js?v=vercel-1" defer></script>
 </body>
 </html>

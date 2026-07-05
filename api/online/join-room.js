@@ -1,11 +1,14 @@
 const {
-  getRoom,
+  getJson,
+  getRoomWithRetry,
+  guestPlayer,
   normalizeRoomCode,
   parseJsonBody,
-  publicRoom,
+  playerPath,
+  putJson,
   saveRoom,
   sendJson,
-  signPlayerToken,
+  storageMode,
 } = require("./_lib");
 
 module.exports = async function handler(request, response) {
@@ -25,37 +28,42 @@ module.exports = async function handler(request, response) {
   if (!code) return sendJson(response, 400, { error: "Enter a session code." });
 
   try {
-    const room = await getRoom(code);
+    const room = await getRoomWithRetry(code);
     if (!room || room.status === "ended") return sendJson(response, 404, { error: "Session not found." });
-    if (room.players.length >= 2 && !room.players.find((player) => player.id === body.playerId)) {
-      return sendJson(response, 409, { error: "This 1v1 room is full." });
+    if (room.status !== "lobby") return sendJson(response, 409, { error: "This race already started." });
+
+    const existingGuest = room.players.find((player) => player.id === "p2");
+    if (existingGuest) {
+      // Allow reclaiming the guest slot only if the previous guest went quiet
+      // (closed tab, dropped connection). An active guest keeps the seat.
+      const guestDoc = (await getJson(playerPath(code, "p2"))) || {};
+      const quietForMs = Date.now() - Number(guestDoc.lastSeen || 0);
+      if (quietForMs < 8000) {
+        return sendJson(response, 409, { error: "This 1v1 room is full." });
+      }
+      room.players = room.players.filter((player) => player.id !== "p2");
     }
 
-    let playerId = "p2";
-    const existing = room.players.find((player) => player.id === body.playerId);
-    if (existing) {
-      playerId = existing.id;
-      existing.name = String(body.name || existing.name).trim().slice(0, 20) || existing.name;
-      existing.car = String(body.car || existing.car).slice(0, 20);
-    } else if (!room.players.find((player) => player.id === "p2")) {
-      room.players.push({
-        id: "p2",
-        role: "guest",
-        name: String(body.name || "Challenger").trim().slice(0, 20) || "Challenger",
-        car: String(body.car || "fd").slice(0, 20),
-        connected: false,
-        ready: false,
-        score: 0,
-        progress: 0,
-      });
-    }
-
+    const guest = guestPlayer(body.name, body.car);
+    room.players.push(guest);
     await saveRoom(room);
+    await putJson(playerPath(code, "p2"), { lastSeen: Date.now() });
+
+    const host = room.players.find((player) => player.id === "p1");
     return sendJson(response, 200, {
       ok: true,
-      room: publicRoom(room),
-      playerId,
-      playerToken: signPlayerToken(room.code, playerId),
+      playerId: "p2",
+      playerToken: guest.token,
+      storage: storageMode(),
+      room: {
+        code: room.code,
+        status: room.status,
+        raceDurationMs: room.raceDurationMs,
+        players: [
+          { id: "p1", name: host?.name || "Host", car: host?.car || "s15", role: "host", connected: true, ready: false, score: 0, progress: 0 },
+          { id: "p2", name: guest.name, car: guest.car, role: "guest", connected: true, ready: false, score: 0, progress: 0 },
+        ],
+      },
     });
   } catch (error) {
     console.error("JAPAN_DRIFT_JOIN_ROOM_ERROR", error);
