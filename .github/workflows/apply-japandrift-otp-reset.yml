@@ -16,13 +16,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Apply OTP reset patch
+      - name: Load and apply saved OTP reset patch
         shell: bash
         run: |
           set -euo pipefail
-          cat > /tmp/japandrift-otp-reset.patch.gz.b64 <<'PATCH_B64'
-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
-PATCH_B64
+          curl -fsSL "https://raw.githubusercontent.com/athridev/japandrift/f6610a7dd8c4b0d32c7c4e6b51c966a4270a5d29/.github/workflows/apply-japandrift-otp-reset.yml" > /tmp/source-workflow.yml
+          awk "found && /^PATCH_B64$/ {exit} found {print} /<<'PATCH_B64'/ {found=1}" /tmp/source-workflow.yml > /tmp/japandrift-otp-reset.patch.gz.b64
+          test -s /tmp/japandrift-otp-reset.patch.gz.b64
           base64 -d /tmp/japandrift-otp-reset.patch.gz.b64 | gunzip > /tmp/japandrift-otp-reset.patch
           git apply --index --whitespace=nowarn /tmp/japandrift-otp-reset.patch
           rm -f .github/workflows/apply-japandrift-otp-reset.yml
