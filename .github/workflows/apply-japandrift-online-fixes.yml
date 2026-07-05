@@ -1,5 +1,6 @@
 name: Apply Japan Drift Online Fixes
 
+# Triggered once after workflow creation.
 on:
   push:
     paths:
