@@ -6,6 +6,7 @@ const {
   hotSet,
   normalizeRoomCode,
   parseJsonBody,
+  playerHotKey,
   playerPath,
   putJson,
   saveRoom,
@@ -19,9 +20,7 @@ const STALE_PLAYER_MS = 15000;
 const CONNECTED_WINDOW_MS = 6000;
 const END_GRACE_MS = 5000;
 
-function hotKey(code, playerId) {
-  return `hot:${normalizeRoomCode(code)}:${playerId}`;
-}
+const hotKey = playerHotKey;
 
 // Read a player doc, preferring a very fresh in-instance copy (co-located
 // polling) and falling back to Blob. Player docs are rewritten every poll, so

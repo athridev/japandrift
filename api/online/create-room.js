@@ -6,8 +6,7 @@ const {
   generateRoomCode,
   getRoom,
   parseJsonBody,
-  playerPath,
-  putJson,
+  putPlayerDoc,
   saveRoom,
   sendJson,
   signPlayerToken,
@@ -39,7 +38,7 @@ module.exports = async function handler(request, response) {
     const room = freshRoom(code);
     const host = freshPlayerDoc("p1", body.name, body.car);
     await saveRoom(room);
-    await putJson(playerPath(code, "p1"), host);
+    await putPlayerDoc(code, "p1", host);
 
     return sendJson(response, 200, {
       ok: true,

@@ -195,6 +195,26 @@ function playerPath(code, playerId) {
   return `${ROOM_PREFIX}rooms/${normalizeRoomCode(code)}-${playerId}.json`;
 }
 
+function playerHotKey(code, playerId) {
+  return `hot:${normalizeRoomCode(code)}:${playerId}`;
+}
+
+// Write-through for player docs: hot cache first (visible instantly to any
+// request on this instance), then Blob.
+async function putPlayerDoc(code, playerId, doc) {
+  hotSet(playerHotKey(code, playerId), { doc, cachedAt: Date.now() });
+  await putJson(playerPath(code, playerId), doc);
+}
+
+// Freshest available copy: hot if recent, else Blob.
+async function getPlayerDoc(code, playerId, hotWindowMs = 2500) {
+  const hot = hotGet(playerHotKey(code, playerId));
+  if (hot && Date.now() - hot.cachedAt < hotWindowMs) return hot.doc;
+  const doc = await getJson(playerPath(code, playerId));
+  if (doc) hotSet(playerHotKey(code, playerId), { doc, cachedAt: Date.now() });
+  return doc || (hot ? hot.doc : null);
+}
+
 function cleanName(name, fallback) {
   return String(name || fallback).trim().slice(0, 20) || fallback;
 }
@@ -293,7 +313,10 @@ module.exports = {
   hotSet,
   normalizeRoomCode,
   parseJsonBody,
+  playerHotKey,
   playerPath,
+  getPlayerDoc,
+  putPlayerDoc,
   putJson,
   roomPath,
   safeEqual,

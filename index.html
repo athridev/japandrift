@@ -2,12 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#170b22">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>EBISU CIRCUIT — 恵比寿サーキット</title>
 <style>
-  html,body{margin:0;padding:0;height:100%;background:#170b22;overflow:hidden}
-  canvas{display:block;touch-action:none;-webkit-user-select:none;user-select:none}
+  /* Mobile-game input hardening: no text selection, no long-press callout,
+     no tap highlight, no pull-to-refresh / overscroll bounce, no gestures.
+     position:fixed pins the page so iOS Safari can't rubber-band it. */
+  html,body{
+    margin:0;padding:0;height:100%;background:#170b22;overflow:hidden;
+    position:fixed;inset:0;width:100%;
+    touch-action:none;overscroll-behavior:none;
+    -webkit-user-select:none;-moz-user-select:none;user-select:none;
+    -webkit-touch-callout:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+  canvas{display:block;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 </style>
 </head>
 <body>
@@ -477,6 +490,28 @@ function startGame() {
     if (k) { e.preventDefault(); keys[k] = false; }
   });
   window.addEventListener('contextmenu', e => e.preventDefault());
+  // Kill every remaining browser gesture a game button could trigger:
+  // long-press callout/selection loupe, double-tap zoom, pinch zoom,
+  // pull-to-refresh, edge swipes eating a held control. Non-passive
+  // preventDefault on the raw touch events is the only reliable way —
+  // CSS touch-action alone still lets iOS Safari run some of these.
+  const eatTouch = e => { if (e.cancelable) e.preventDefault(); };
+  document.addEventListener('touchstart', e => {
+    eatTouch(e);
+    // self-heal: this touch is the only finger on screen, so any other
+    // touch pointer still tracked in ptrs lost its pointerup — drop it
+    if (e.touches.length === 1) {
+      const now = performance.now();
+      for (const [id, p] of ptrs)
+        if (p.t === 'touch' && now - p.ts > 80) ptrs.delete(id);
+    }
+  }, { passive: false });
+  document.addEventListener('touchmove', eatTouch, { passive: false });
+  document.addEventListener('touchend', eatTouch, { passive: false });
+  document.addEventListener('gesturestart', eatTouch, { passive: false });
+  document.addEventListener('gesturechange', eatTouch, { passive: false });
+  document.addEventListener('dblclick', e => e.preventDefault());
+  document.addEventListener('selectstart', e => e.preventDefault());
 
   // stuck-key + tab-away safety: drop all inputs and shelve the race
   function focusLost() {
@@ -502,7 +537,13 @@ function startGame() {
   window.addEventListener('pointerdown', e => {
     e.preventDefault();
     if (e.pointerType === 'touch') G.touch = true;
-    ptrs.set(e.pointerId, ptPos(e));
+    const p = ptPos(e);
+    p.t = e.pointerType; p.ts = performance.now();
+    // sticky control assignment: the button you land on is yours until
+    // you lift the finger — sliding off it can NOT drop the input, and a
+    // lost/hijacked pointer can never wedge a button on (see ptrEnd).
+    p.btn = touchBtnAt(p.x, p.y);
+    ptrs.set(e.pointerId, p);
     SND.init();
     wakeGamepads();
     let hitZone = false;
@@ -515,7 +556,8 @@ function startGame() {
       : null;
   }, { passive: false });
   window.addEventListener('pointermove', e => {
-    if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, ptPos(e));
+    const p = ptrs.get(e.pointerId);
+    if (p) { p.x = e.clientX; p.y = e.clientY; }
   });
   const ptrEnd = e => {
     ptrs.delete(e.pointerId);
@@ -531,9 +573,10 @@ function startGame() {
 
   // on-screen touch buttons (only shown once a touch is seen, then hidden
   // automatically while a controller is connected).
-  let touchBtns = [];
+  let touchBtns = [], touchLW = 0, touchLH = 0;
   function layoutTouch() {
     const r = Math.min(W, H) * 0.075, pad = r * 0.5;
+    touchLW = W; touchLH = H;
     touchBtns = [
       { id: 'left',  x: pad + r,             y: H - pad - r, r, label: '◀' },
       { id: 'right', x: pad + r * 3.3,       y: H - pad - r, r, label: '▶' },
@@ -542,14 +585,37 @@ function startGame() {
       { id: 'up',    x: W - pad - r,         y: H - pad - r, r: r * 1.15, label: 'GAS' }
     ];
   }
+  function touchLayoutFresh() {
+    if (!touchBtns.length || touchLW !== W || touchLH !== H) layoutTouch();
+  }
+  // nearest button whose (generous) hit circle contains the point
+  function touchBtnAt(x, y) {
+    touchLayoutFresh();
+    let best = null, bd = 1e18;
+    for (const b of touchBtns) {
+      const dx = x - b.x, dy = y - b.y, d = dx * dx + dy * dy;
+      if (d <= (b.r * 1.35) ** 2 && d < bd) { bd = d; best = b.id; }
+    }
+    return best;
+  }
   function touchState() {
     const st = { up: false, down: false, left: false, right: false, eb: false };
     if (!touchControlsEnabled()) return st;
-    if (!touchBtns.length) layoutTouch();
+    touchLayoutFresh();
     for (const p of ptrs.values()) {
-      for (const b of touchBtns) {
-        const dx = p.x - b.x, dy = p.y - b.y;
-        if (dx * dx + dy * dy <= (b.r * 1.25) ** 2) st[b.id] = true;
+      if (p.btn === 'left' || p.btn === 'right') {
+        // steering pair: slide between ◀ and ▶ without lifting
+        const L = touchBtns[0], R = touchBtns[1];
+        const dl = (p.x - L.x) ** 2 + (p.y - L.y) ** 2;
+        const dr = (p.x - R.x) ** 2 + (p.y - R.y) ** 2;
+        st[dl <= dr ? 'left' : 'right'] = true;
+      } else if (p.btn) {
+        st[p.btn] = true;          // sticky: held until the finger lifts
+      } else {
+        for (const b of touchBtns) {
+          const dx = p.x - b.x, dy = p.y - b.y;
+          if (dx * dx + dy * dy <= (b.r * 1.25) ** 2) st[b.id] = true;
+        }
       }
     }
     return st;

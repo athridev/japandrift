@@ -97,7 +97,7 @@
   }
   function updateOnlineRemote(dt) {
     if (!onlineRemote || !onlineRemoteTarget) return;
-    const age = clamp((performance.now() - onlineRemoteTarget.receivedAt) / 1000, 0, 0.2);
+    const age = clamp((performance.now() - onlineRemoteTarget.receivedAt) / 1000, 0, 1.0);
     const targetX = onlineRemoteTarget.x + onlineRemoteTarget.vx * age;
     const targetY = onlineRemoteTarget.y + onlineRemoteTarget.vy * age;
     const k = clamp(dt * 13, 0.08, 0.42);
@@ -155,6 +155,11 @@
     out = out.replace(
       "    SND.update(dt, car, G.state === 'play' || G.state === 'count');\n",
       "    if (onlineMode) updateOnlineRemote(dt);\n    SND.update(dt, car, G.state === 'play' || G.state === 'count');\n"
+    );
+
+    out = out.replace(
+      "  function touchControlsEnabled() {\n    return G.touch && !pad.connected;",
+      "  function touchControlsEnabled() {\n    return !onlineMode && G.touch && !pad.connected;"
     );
 
     out = out.replace(
@@ -317,6 +322,7 @@
     engineActive = true;
     remoteSnapshot = null;
     state.mode = "race";
+    state.maxProgress = 0;
     state.car = null;
     state.remote = spawnCar(CAR_BY_ID[remotePlayer?.car] || CARS[2], state.playerId === "p1" ? 28 : -28);
     state.remote.name = remotePlayer?.name || "Opponent";
@@ -394,7 +400,7 @@
     ctx.clearRect(0, 0, W, H);
     if (gameApi()?.setRemoteState) return;
     if (!remoteSnapshot || !local) return;
-    const lead = clamp((performance.now() - remoteSnapshot.receivedAt) / 1000, 0, 0.16);
+    const lead = clamp((performance.now() - remoteSnapshot.receivedAt) / 1000, 0, 1.0);
     const targetX = remoteSnapshot.x + (remoteSnapshot.vx || 0) * lead;
     const targetY = remoteSnapshot.y + (remoteSnapshot.vy || 0) * lead;
     if (!state.remote) state.remote = spawnCar(CAR_BY_ID[remoteSnapshot.carId] || CARS[2], 0);
@@ -415,12 +421,31 @@
     drawRemoteName();
   }
 
+  // Forward the online page's touch buttons into the engine as key presses,
+  // and keep the buttons visible on touch devices during engine races.
+  const TOUCH_DEVICE = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+  const TOUCH_KEYMAP = { left: "ArrowLeft", right: "ArrowRight", gas: "ArrowUp", brake: "ArrowDown", ebrake: "Space" };
+  const touchPrev = {};
+  function pumpTouchIntoEngine() {
+    const engine = gameApi();
+    if (!engine?.setKey) return;
+    for (const key in TOUCH_KEYMAP) {
+      const down = Boolean(state.touch[key]);
+      if (down !== Boolean(touchPrev[key])) {
+        engine.setKey(TOUCH_KEYMAP[key], down);
+        touchPrev[key] = down;
+      }
+    }
+  }
+
   const originalLoop = loop;
   loop = function (now) {
     if (!engineActive) {
       originalLoop(now);
       return;
     }
+    els.touch.classList.toggle("is-visible", TOUCH_DEVICE && !state.gamepadActive);
+    pumpTouchIntoEngine();
     const dt = Math.min(0.05, (now - bridgeLast) / 1000);
     bridgeLast = now;
     const serverNow = Date.now() + state.serverOffset;
@@ -431,7 +456,8 @@
       updateBridgeHud(snapshot, remainingMs);
       if (now - state.lastStateSend > 50) sendState(now);
       if (now - state.lastScoreSend > 250) sendScore(now, remainingMs);
-      if (!state.sentFinish && snapshot.progress > 0.985) {
+      trackProgress(snapshot.progress || 0);
+      if (!state.sentFinish && lapComplete(snapshot.progress || 0)) {
         state.sentFinish = true;
         sendWs({ type: "finish", score: Math.round(snapshot.score || 0), progress: snapshot.progress, remainingMs });
       }

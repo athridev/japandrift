@@ -49,9 +49,6 @@ button {
 .engine-race .offline-game {
   pointer-events: auto;
 }
-.engine-race .touch {
-  display: none !important;
-}
 .engine-race .race-hud {
   left: auto;
   right: max(14px, env(safe-area-inset-right));

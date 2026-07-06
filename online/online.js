@@ -159,6 +159,7 @@ const state = {
   ready: false,
   countdownAt: 0,
   startedAt: 0,
+  maxProgress: 0,
   raceDurationMs: 120000,
   sentFinish: false,
   sentTimerFinish: false,
@@ -283,7 +284,7 @@ function sendWs(payload) {
 }
 
 function syncInterval() {
-  if (state.mode === "race") return 300;
+  if (state.mode === "race") return 150;
   if (state.mode === "lobby" && state.room?.status === "countdown") return 500;
   return 1000;
 }
@@ -591,6 +592,20 @@ function updateScore(car, dt, dist, width) {
   }
 }
 
+// Wrap-safe lap tracking. Progress is a 0..1 position around the loop, so
+// sliding backwards over the start line jumps it to ~0.99 — which used to
+// count as an instant finish. Only forward driving raises maxProgress, and a
+// lap only counts once most of the track has actually been covered.
+function trackProgress(progress) {
+  if (progress - state.maxProgress < 0.3) {
+    state.maxProgress = Math.max(state.maxProgress, progress);
+  }
+}
+
+function lapComplete(progress) {
+  return progress > 0.985 && state.maxProgress > 0.6;
+}
+
 function startRace() {
   const myPlayer = state.room.players.find((player) => player.id === state.playerId);
   const remotePlayer = state.room.players.find((player) => player.id !== state.playerId);
@@ -598,6 +613,7 @@ function startRace() {
   state.remote = spawnCar(CAR_BY_ID[remotePlayer?.car] || CARS[2], state.playerId === "p1" ? 28 : -28);
   state.remote.name = remotePlayer?.name || "Opponent";
   state.mode = "race";
+  state.maxProgress = 0;
   state.sentFinish = false;
   state.sentTimerFinish = false;
   els.shell.classList.add("is-hidden");
@@ -752,7 +768,8 @@ function loop(now) {
       updateHud(remainingMs);
       if (now - state.lastStateSend > 50) sendState(now);
       if (now - state.lastScoreSend > 250) sendScore(now, remainingMs);
-      if (!state.sentFinish && state.car.progress > 0.985) {
+      trackProgress(state.car.progress);
+      if (!state.sentFinish && lapComplete(state.car.progress)) {
         state.sentFinish = true;
         sendWs({ type: "finish", score: Math.round(state.car.score), progress: state.car.progress, remainingMs });
       }

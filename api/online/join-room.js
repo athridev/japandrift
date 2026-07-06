@@ -2,12 +2,11 @@ const {
   cleanCar,
   cleanName,
   freshPlayerDoc,
-  getJson,
+  getPlayerDoc,
   getRoomWithRetry,
   normalizeRoomCode,
   parseJsonBody,
-  playerPath,
-  putJson,
+  putPlayerDoc,
   sendJson,
   signPlayerToken,
   storageMode,
@@ -36,14 +35,14 @@ module.exports = async function handler(request, response) {
 
     // The guest slot is taken only if a guest doc exists AND is still active.
     // A quiet slot (closed tab) can be reclaimed.
-    const existing = await getJson(playerPath(code, "p2"));
+    const existing = await getPlayerDoc(code, "p2");
     if (existing && Date.now() - Number(existing.lastSeen || 0) < 8000) {
       return sendJson(response, 409, { error: "This 1v1 room is full." });
     }
 
     const guest = freshPlayerDoc("p2", body.name, body.car);
-    await putJson(playerPath(code, "p2"), guest);
-    const host = await getJson(playerPath(code, "p1"));
+    await putPlayerDoc(code, "p2", guest);
+    const host = await getPlayerDoc(code, "p1");
 
     return sendJson(response, 200, {
       ok: true,
