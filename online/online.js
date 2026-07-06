@@ -316,8 +316,10 @@ async function syncNow() {
     name: state.myName,
     car: state.myCar,
     ...sync.pending,
+    ...(state.rtcOut || {}),
   };
   sync.pending = {};
+  state.rtcOut = null;
   // Storage propagation can lag between server instances; re-assert the
   // ready flag every lobby poll (idempotent) so it can never get lost.
   if (state.ready && state.mode === "lobby") body.ready = true;
@@ -366,6 +368,10 @@ function applySync(result, sentAt) {
     sync.lastOpponentStateAt = result.opponent.stateAt;
     handleWs({ type: "state", playerId: result.opponent.id, state: result.opponent.state });
   }
+
+  // Extension point for online/rtc.js: forwards WebRTC offer/answer/ICE
+  // candidates piggybacked on this same reliable sync channel.
+  if (result.opponent && state.onRtcSignal) state.onRtcSignal(result.opponent);
 
   if (room.status === "ended" && room.result) {
     if (state.mode !== "results") handleWs({ type: "results", result: room.result });

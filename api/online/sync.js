@@ -125,6 +125,39 @@ module.exports = async function handler(request, response) {
     if (typeof body.progress === "number") myDoc.progress = body.progress;
     if (body.finish === true && !myDoc.finishedAt) myDoc.finishedAt = now;
     if (body.leave === true) myDoc.leftAt = now;
+
+    // WebRTC signaling relay: piggybacked on this same channel so it inherits
+    // the stateless-token auth and propagation-tolerant persistence already
+    // built here — no new endpoint, no new failure mode for signaling itself.
+    let rtcSignal = false;
+    if (typeof body.rtcOffer === "string") {
+      myDoc.rtcOffer = body.rtcOffer.slice(0, 4000);
+      rtcSignal = true;
+    }
+    if (typeof body.rtcAnswer === "string") {
+      myDoc.rtcAnswer = body.rtcAnswer.slice(0, 4000);
+      rtcSignal = true;
+    }
+    if (Array.isArray(body.rtcCandidates) && body.rtcCandidates.length) {
+      const seen = new Set();
+      myDoc.rtcCandidates = (myDoc.rtcCandidates || [])
+        .concat(body.rtcCandidates)
+        .filter((c) => {
+          const key = JSON.stringify(c);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .slice(-40);
+      rtcSignal = true;
+    }
+    if (body.rtcReset === true) {
+      myDoc.rtcOffer = null;
+      myDoc.rtcAnswer = null;
+      myDoc.rtcCandidates = [];
+      rtcSignal = true;
+    }
+
     hotSet(hotKey(code, playerId), { doc: myDoc, cachedAt: now });
 
     // --- Read opponent doc (memory fast path, else Blob). ---
@@ -137,8 +170,10 @@ module.exports = async function handler(request, response) {
 
     // Persist my doc. Lobby/finish/leave events persist immediately; during a
     // race, throttle when the opponent is co-located (already reads my hot copy).
+    // Signaling also persists immediately — ICE negotiation is sparse (a
+    // handful of round trips) and time-sensitive, unlike per-tick car state.
     const mustPersist =
-      body.ready === true || body.finish === true || body.leave === true || !myDoc.persistedAt;
+      body.ready === true || body.finish === true || body.leave === true || rtcSignal || !myDoc.persistedAt;
     const persistEvery = opponentCoLocated ? 900 : 250;
     if (mustPersist || now - Number(myDoc.persistedAt || 0) >= persistEvery) {
       myDoc.persistedAt = now;
@@ -196,8 +231,18 @@ module.exports = async function handler(request, response) {
       storage: storageMode(),
       room: publicView(room, docs, now),
     };
-    if (opponentDoc?.state && opponentDoc.stateAt) {
-      payload.opponent = { id: opponentId, state: opponentDoc.state, stateAt: opponentDoc.stateAt };
+    if (
+      opponentDoc &&
+      (opponentDoc.state || opponentDoc.rtcOffer || opponentDoc.rtcAnswer || opponentDoc.rtcCandidates?.length)
+    ) {
+      payload.opponent = { id: opponentId };
+      if (opponentDoc.state && opponentDoc.stateAt) {
+        payload.opponent.state = opponentDoc.state;
+        payload.opponent.stateAt = opponentDoc.stateAt;
+      }
+      if (opponentDoc.rtcOffer) payload.opponent.rtcOffer = opponentDoc.rtcOffer;
+      if (opponentDoc.rtcAnswer) payload.opponent.rtcAnswer = opponentDoc.rtcAnswer;
+      if (opponentDoc.rtcCandidates?.length) payload.opponent.rtcCandidates = opponentDoc.rtcCandidates;
     }
     return sendJson(response, 200, payload);
   } catch (error) {
