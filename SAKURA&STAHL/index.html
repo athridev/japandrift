@@ -8,9 +8,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>SAKURA & STAHL — Ebisu × Nordschleife</title>
-<meta name="description" content="Sakura & Stahl — drift Ebisu's sakura-dusk figure-8 or chase a real 1:1 Nürburgring Nordschleife. 10 machines, 2 circuits, one dusk to green hell.">
+<meta name="description" content="Sakura & Stahl — drift Ebisu's sakura-dusk figure-8, slide Meihan's sodium sweeper, or hunt tourist traffic on a real 1:1 Nürburgring Nordschleife. 10 machines, 3 circuits.">
 <meta property="og:title" content="SAKURA & STAHL">
-<meta property="og:description" content="Ebisu drift heaven × the real Nordschleife, 1:1. 10 machines, 2 circuits.">
+<meta property="og:description" content="Ebisu × Meihan × the real Nordschleife with tourist traffic. 10 machines, 3 circuits.">
 <meta property="og:type" content="website">
 <link rel="icon" href="../favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/icons/favicon-32x32.png">
@@ -53,6 +53,11 @@
    with a longer surge whose stutter slows as it dies — tolololo.
    v2.4: per-car gear ratios, rpm/speed/load shift logic, natural
    downshifts, and lower-gear torque pull for more believable drift runs.
+   v2.5: Meihan Sportsland (third circuit, sodium-dusk drift bowl),
+   Nordschleife Touristenfahrten traffic (yielding tourists, blinkers,
+   overtake scoring, contact physics), authentic 5/6-speed ratios and
+   shift times per car, per-car turbo pitch / spool lag / NA growl,
+   corner-name callouts and lap-distance HUD on the 'Ring.
    ===================================================================== */
 
 // ------------------------------------------------ tiny math
@@ -158,11 +163,12 @@ function finalizeLoop(pts, M) {
   return { pts, N, total, worldW, worldH, ox, oy };
 }
 
-function buildTrack() {
-  const SEG = 40, n = CTRL.length, pts = [];
+// generic Catmull-Rom control-loop builder shared by the drift circuits
+function buildCtrlTrack(ctrl, startX, startY) {
+  const SEG = 40, n = ctrl.length, pts = [];
   for (let i = 0; i < n; i++) {
-    const p0 = CTRL[(i - 1 + n) % n], p1 = CTRL[i],
-          p2 = CTRL[(i + 1) % n],     p3 = CTRL[(i + 2) % n];
+    const p0 = ctrl[(i - 1 + n) % n], p1 = ctrl[i],
+          p2 = ctrl[(i + 1) % n],     p3 = ctrl[(i + 2) % n];
     for (let j = 0; j < SEG; j++) {
       const t = j / SEG, t2 = t * t, t3 = t2 * t;
       const q = (a, b, c, d) =>
@@ -175,8 +181,7 @@ function buildTrack() {
     }
   }
   const t = finalizeLoop(pts, 360);
-  // start/finish on the top-right straight
-  const sx = 2050 + t.ox, sy = 660 + t.oy;
+  const sx = startX + t.ox, sy = startY + t.oy;
   let startIdx = 0, bd = 1e18;
   for (let i = 0; i < t.N; i++) {
     const d = (t.pts[i].x - sx) ** 2 + (t.pts[i].y - sy) ** 2;
@@ -185,6 +190,29 @@ function buildTrack() {
   t.startIdx = startIdx; t.dyn = false;
   return t;
 }
+function buildTrack() { return buildCtrlTrack(CTRL, 2050, 660); }
+
+// ---------------------------------------------- Meihan Sportsland
+// Grassroots drift heaven under sodium light: one huge tyre-walled
+// sweeper, a flowing ess link, and a tight hairpin back onto the straight.
+const CTRL_MEIHAN = [
+  [ 600,  500, 170],  // start/finish straight (west end)
+  [1100,  430, 176],
+  [1650,  430, 182],  // fast kink
+  [2150,  520, 192],
+  [2520,  760, 212],  // sweeper entry
+  [2650, 1120, 236],  // sweeper apex — widest, tyre wall outside
+  [2520, 1470, 216],
+  [2150, 1650, 192],  // sweeper exit
+  [1700, 1600, 172],  // esses right
+  [1400, 1440, 162],  // esses left
+  [1080, 1380, 162],  // link
+  [ 760, 1500, 172],  // hairpin entry
+  [ 480, 1420, 188],  // hairpin apex
+  [ 420, 1120, 178],
+  [ 470,  800, 172]   // climb back to the straight
+];
+function buildMeihan() { return buildCtrlTrack(CTRL_MEIHAN, 1350, 430); }
 
 // ---------------------------------------------- Nürburgring Nordschleife
 // REAL 1:1 geometry: 20.7 km of OpenStreetMap centreline at 10 px/m,
@@ -266,9 +294,14 @@ const TRACKS = {
     len: '2.1 km', desc: 'sakura dusk drift heaven — figure-8, wall runs',
     build: buildTrack
   },
+  meihan: {
+    name: 'MEIHAN SPORTSLAND', jp: '名阪スポーツランド', cat: 'drift', style: 'meihan',
+    len: '1.5 km', desc: 'sodium-lit grassroots bowl — tyre walls, big sweeper',
+    build: buildMeihan
+  },
   nring: {
     name: 'NORDSCHLEIFE', jp: 'ニュルブルクリンク北コース', cat: 'gt', style: 'eifel',
-    len: '20.7 km', desc: 'the Green Hell — real 1:1 layout, 154 corners',
+    len: '20.7 km', desc: 'the Green Hell — real 1:1 layout, tourist traffic',
     build: buildNring
   }
 };
@@ -331,8 +364,8 @@ const CARS = [
       turn: 3.0, driftTurn: 2.35, slideYaw: 0.95,
       kick: 0.12, driftFriction: 0.16
     },
-    eng: { base: 58, mul: 3.5, waves: ['square', 'sawtooth'], det: 9, filt: 3100, sub: 0.28, turbo: 0, pops: 0.35,
-           harm: [0, 1, 0.55, 0.20, 0.42, 0.10, 0.16, 0.06, 0.08] }   // 4A-GE: bright ITB four, strong 2nd order
+    eng: { base: 58, mul: 3.5, waves: ['square', 'sawtooth'], det: 9, filt: 3100, sub: 0.28, turbo: 0, pops: 0.35, naGrowl: 1.7,
+           harm: [0, 1, 0.55, 0.20, 0.42, 0.10, 0.16, 0.06, 0.08] }   // 4A-GE: bright ITB four, big intake honk
   },
   {
     id: 's15', name: 'S-15', jp: 'エス・フィフティーン', tag: 'TURBO DRIFT SPEC · 横向き純正',
@@ -345,8 +378,8 @@ const CARS = [
       turn: 2.8, driftTurn: 2.1, slideYaw: 1.05,
       kick: 0.12, driftFriction: 0.28
     },
-    eng: { base: 50, mul: 3.2, waves: ['sawtooth', 'square'], det: 6, filt: 2500, sub: 0.34, turbo: 0.85, pops: 0.5,
-           harm: [0, 1, 0.72, 0.22, 0.30, 0.12, 0.10, 0.05, 0.04] }   // SR20DET: muffled turbo four
+    eng: { base: 50, mul: 3.2, waves: ['sawtooth', 'square'], det: 6, filt: 2500, sub: 0.34, turbo: 0.85, pops: 0.5, tPitch: 1.3, spool: 0.4,
+           harm: [0, 1, 0.72, 0.22, 0.30, 0.12, 0.10, 0.05, 0.04] }   // SR20DET: muffled four, small T28 whistles high
   },
   {
     id: 'fd', name: 'FD-3S', jp: 'エフディー', tag: 'TWIN ROTOR · 回転の悪魔',
@@ -359,8 +392,8 @@ const CARS = [
       turn: 3.05, driftTurn: 2.2, slideYaw: 1.2,
       kick: 0.14, driftFriction: 0.40
     },
-    eng: { base: 86, mul: 3.8, waves: ['sawtooth', 'sawtooth'], det: 17, filt: 3400, sub: 0.18, turbo: 0.7, pops: 0.6, rotary: true,
-           harm: [0, 1, 0.45, 0.60, 0.35, 0.40, 0.25, 0.28, 0.18] }   // 13B: dense buzzy spectrum, the brap
+    eng: { base: 86, mul: 3.8, waves: ['sawtooth', 'sawtooth'], det: 17, filt: 3400, sub: 0.18, turbo: 0.7, pops: 0.6, rotary: true, tPitch: 1.15, spool: 0.5,
+           harm: [0, 1, 0.45, 0.60, 0.35, 0.40, 0.25, 0.28, 0.18] }   // 13B: dense buzzy spectrum, sequential twins
   },
   {
     id: 'r34', name: 'R-34', jp: 'アール・サンヨン', tag: 'AWD MONSTER · 湾岸の怪物',
@@ -373,8 +406,8 @@ const CARS = [
       turn: 2.6, driftTurn: 1.8, slideYaw: 0.8,
       kick: 0.10, driftFriction: 0.30
     },
-    eng: { base: 42, mul: 3.0, waves: ['sawtooth', 'square'], det: 5, filt: 2250, sub: 0.42, turbo: 1.0, pops: 0.4,
-           harm: [0, 1, 0.35, 0.80, 0.20, 0.30, 0.45, 0.12, 0.10] }   // RB26: creamy I6, 3rd/6th-order firing
+    eng: { base: 42, mul: 3.0, waves: ['sawtooth', 'square'], det: 5, filt: 2250, sub: 0.42, turbo: 1.0, pops: 0.4, tPitch: 1.05, spool: 0.6,
+           harm: [0, 1, 0.35, 0.80, 0.20, 0.30, 0.45, 0.12, 0.10] }   // RB26: creamy I6, twin ceramic turbos
   },
   {
     id: 'a80', name: 'A-80', jp: 'エー・ハチマル', tag: 'BIG SINGLE TURBO · 直6の暴力',
@@ -387,8 +420,8 @@ const CARS = [
       turn: 2.55, driftTurn: 1.95, slideYaw: 1.1,
       kick: 0.13, driftFriction: 0.34
     },
-    eng: { base: 40, mul: 2.9, waves: ['sawtooth', 'square'], det: 4, filt: 2100, sub: 0.46, turbo: 1.0, pops: 1.0,
-           harm: [0, 1, 0.42, 0.85, 0.25, 0.20, 0.50, 0.10, 0.14] }   // 2JZ: I6 firing order with a heavier bottom end
+    eng: { base: 40, mul: 2.9, waves: ['sawtooth', 'square'], det: 4, filt: 2100, sub: 0.46, turbo: 1.0, pops: 1.0, tPitch: 0.72, spool: 0.9,
+           harm: [0, 1, 0.42, 0.85, 0.25, 0.20, 0.50, 0.10, 0.14] }   // 2JZ: heavy I6, big lazy single spools deep
   },
 
   // ------------------------------------------ the five GT3 machines
@@ -405,7 +438,7 @@ const CARS = [
       turn: 3.2, driftTurn: 1.7, slideYaw: 0.8,
       kick: 0.08, driftFriction: 0.52
     },
-    eng: { base: 60, mul: 4.3, waves: ['sawtooth', 'square'], det: 7, filt: 3600, sub: 0.22, turbo: 0, pops: 0.5, gt: true,
+    eng: { base: 60, mul: 4.3, waves: ['sawtooth', 'square'], det: 7, filt: 3600, sub: 0.22, turbo: 0, pops: 0.5, gt: true, naGrowl: 1.35,
            harm: [0, 1, 0.30, 0.72, 0.18, 0.28, 0.42, 0.30, 0.22] }   // flat-6: 3rd-order howl, bright top
   },
   {
@@ -419,8 +452,8 @@ const CARS = [
       turn: 3.0, driftTurn: 1.8, slideYaw: 0.85,
       kick: 0.09, driftFriction: 0.50
     },
-    eng: { base: 36, mul: 2.9, waves: ['sawtooth', 'square'], det: 4, filt: 2400, sub: 0.52, turbo: 0, pops: 0.9, gt: true,
-           harm: [0, 1, 0.85, 0.30, 0.55, 0.15, 0.18, 0.08, 0.06] }   // crossplane V8: heavy 2nd/4th rumble
+    eng: { base: 36, mul: 2.9, waves: ['sawtooth', 'square'], det: 4, filt: 2400, sub: 0.52, turbo: 0, pops: 0.9, gt: true, naGrowl: 1.5,
+           harm: [0, 1, 0.85, 0.30, 0.55, 0.15, 0.18, 0.08, 0.06] }   // crossplane V8: heavy 2nd/4th rumble, intake bellow
   },
   {
     id: 'r8', name: 'R8-LMS', jp: 'アールエイト', tag: 'V10 WAIL · 咆哮', cat: 'gt', num: 5,
@@ -433,7 +466,7 @@ const CARS = [
       turn: 3.05, driftTurn: 1.65, slideYaw: 0.78,
       kick: 0.08, driftFriction: 0.54
     },
-    eng: { base: 64, mul: 4.5, waves: ['sawtooth', 'sawtooth'], det: 9, filt: 3800, sub: 0.20, turbo: 0, pops: 0.4, gt: true,
+    eng: { base: 64, mul: 4.5, waves: ['sawtooth', 'sawtooth'], det: 9, filt: 3800, sub: 0.20, turbo: 0, pops: 0.4, gt: true, naGrowl: 1.4,
            harm: [0, 1, 0.25, 0.35, 0.30, 0.85, 0.35, 0.25, 0.40] }   // V10: screaming 5th-order signature
   },
   {
@@ -447,8 +480,8 @@ const CARS = [
       turn: 3.1, driftTurn: 1.75, slideYaw: 0.8,
       kick: 0.08, driftFriction: 0.51
     },
-    eng: { base: 45, mul: 3.4, waves: ['sawtooth', 'square'], det: 6, filt: 2700, sub: 0.40, turbo: 0.9, pops: 0.7, gt: true,
-           harm: [0, 1, 0.38, 0.78, 0.22, 0.25, 0.45, 0.10, 0.10] }   // modern turbo I6
+    eng: { base: 45, mul: 3.4, waves: ['sawtooth', 'square'], det: 6, filt: 2700, sub: 0.40, turbo: 0.9, pops: 0.7, gt: true, tPitch: 1.0, spool: 0.35,
+           harm: [0, 1, 0.38, 0.78, 0.22, 0.25, 0.45, 0.10, 0.10] }   // modern turbo I6: race anti-lag response
   },
   {
     id: 'gtr3', name: 'GT-R GT3', jp: 'ジーティーアール', tag: 'TWIN TURBO V6 · 日本の誇り', cat: 'gt', num: 23,
@@ -461,7 +494,7 @@ const CARS = [
       turn: 3.0, driftTurn: 1.8, slideYaw: 0.82,
       kick: 0.09, driftFriction: 0.50
     },
-    eng: { base: 48, mul: 3.2, waves: ['sawtooth', 'square'], det: 8, filt: 2600, sub: 0.44, turbo: 1.0, pops: 0.6, gt: true,
+    eng: { base: 48, mul: 3.2, waves: ['sawtooth', 'square'], det: 8, filt: 2600, sub: 0.44, turbo: 1.0, pops: 0.6, gt: true, tPitch: 0.9, spool: 0.45,
            harm: [0, 1, 0.55, 0.65, 0.40, 0.20, 0.25, 0.12, 0.08] }   // VR38 twin-turbo V6
   }
 ];
@@ -473,59 +506,63 @@ const DEFAULT_GEARBOX = {
   idle: 0.15, redline: 1.02, up: 0.92, down: 0.36,
   shiftDelay: 0.42, minHold: 1.12
 };
+// JDM boxes: real spec-sheet ratios. AE86 keeps the T50 5-speed and FD
+// the light-flywheel 5-speed; S15 (Spec-R 6MT), R34 (Getrag V160-style
+// 6MT) and A80 (V160 6MT) now carry their true six gears with faster,
+// car-appropriate H-pattern shift times.
 const GEARBOX_BY_CAR = {
-  ae86: {
+  ae86: { // Toyota T50 5MT — short, light, snappy
     tops: [0.24, 0.43, 0.62, 0.80, 1],
     ratios: [3.59, 2.02, 1.38, 1.00, 0.86],
-    up: 0.94, down: 0.39, shiftDelay: 0.38, minHold: 1.14
+    up: 0.95, down: 0.38, shiftDelay: 0.34, minHold: 1.05
   },
-  s15: {
-    tops: [0.25, 0.44, 0.63, 0.82, 1],
-    ratios: [3.32, 1.90, 1.31, 1.00, 0.76],
-    up: 0.91, down: 0.35, shiftDelay: 0.40, minHold: 1.12
+  s15: { // Spec-R 6MT — close ratios keep the SR20 on boost
+    tops: [0.21, 0.35, 0.49, 0.65, 0.82, 1],
+    ratios: [3.63, 2.20, 1.54, 1.21, 1.00, 0.77],
+    up: 0.93, down: 0.36, shiftDelay: 0.36, minHold: 1.00
   },
-  fd: {
-    tops: [0.27, 0.46, 0.65, 0.83, 1],
-    ratios: [3.48, 2.02, 1.39, 1.00, 0.72],
-    up: 0.96, down: 0.37, shiftDelay: 0.36, minHold: 1.04
-  },
-  r34: {
+  fd: { // rotary 5MT — feather flywheel, revs out to the top
     tops: [0.25, 0.43, 0.62, 0.81, 1],
-    ratios: [3.83, 2.36, 1.69, 1.31, 1.00],
-    up: 0.90, down: 0.34, shiftDelay: 0.42, minHold: 1.20
+    ratios: [3.48, 2.02, 1.39, 1.00, 0.72],
+    up: 0.97, down: 0.37, shiftDelay: 0.30, minHold: 0.95
   },
-  a80: {
-    tops: [0.27, 0.47, 0.66, 0.84, 1],
-    ratios: [3.83, 2.36, 1.53, 1.00, 0.79],
-    up: 0.91, down: 0.34, shiftDelay: 0.44, minHold: 1.20
+  r34: { // Getrag 6MT — long-legged wangan gearing
+    tops: [0.21, 0.35, 0.50, 0.66, 0.83, 1],
+    ratios: [3.83, 2.36, 1.69, 1.31, 1.00, 0.79],
+    up: 0.92, down: 0.35, shiftDelay: 0.38, minHold: 1.05
   },
-  // GT3 sequential dog boxes: 6 speeds, ~150 ms pneumatic shifts.
+  a80: { // V160 6MT — heavy lever, big torque between shifts
+    tops: [0.22, 0.36, 0.51, 0.67, 0.84, 1],
+    ratios: [3.83, 2.36, 1.69, 1.31, 1.00, 0.79],
+    up: 0.92, down: 0.34, shiftDelay: 0.40, minHold: 1.08
+  },
+  // GT3 sequential dog boxes: 6 speeds, ~130 ms pneumatic shifts.
   // Long gears + a real hold between UPshifts (a GT3 pulls each gear
   // for well over a second), but near-instant DOWNshifts under braking.
   p911: {
     tops: [0.29, 0.43, 0.56, 0.69, 0.84, 1],
     ratios: [3.08, 2.27, 1.76, 1.42, 1.18, 1.00],
-    up: 0.96, down: 0.40, shiftDelay: 0.15, minHold: 1.30, minHoldDown: 0.42
+    up: 0.96, down: 0.40, shiftDelay: 0.13, minHold: 1.26, minHoldDown: 0.40
   },
   amg: {
     tops: [0.30, 0.44, 0.57, 0.70, 0.85, 1],
     ratios: [3.15, 2.30, 1.78, 1.43, 1.17, 0.98],
-    up: 0.94, down: 0.40, shiftDelay: 0.16, minHold: 1.36, minHoldDown: 0.44
+    up: 0.94, down: 0.40, shiftDelay: 0.14, minHold: 1.32, minHoldDown: 0.42
   },
   r8: {
     tops: [0.29, 0.43, 0.56, 0.70, 0.85, 1],
     ratios: [3.10, 2.26, 1.74, 1.40, 1.16, 1.00],
-    up: 0.97, down: 0.41, shiftDelay: 0.15, minHold: 1.30, minHoldDown: 0.42
+    up: 0.97, down: 0.41, shiftDelay: 0.13, minHold: 1.26, minHoldDown: 0.40
   },
   m4: {
     tops: [0.29, 0.44, 0.57, 0.70, 0.84, 1],
     ratios: [3.12, 2.28, 1.77, 1.43, 1.18, 1.00],
-    up: 0.95, down: 0.40, shiftDelay: 0.15, minHold: 1.32, minHoldDown: 0.43
+    up: 0.95, down: 0.40, shiftDelay: 0.13, minHold: 1.28, minHoldDown: 0.41
   },
   gtr3: {
     tops: [0.30, 0.44, 0.57, 0.70, 0.85, 1],
     ratios: [3.13, 2.29, 1.78, 1.42, 1.17, 0.99],
-    up: 0.94, down: 0.40, shiftDelay: 0.16, minHold: 1.34, minHoldDown: 0.44
+    up: 0.94, down: 0.40, shiftDelay: 0.14, minHold: 1.30, minHoldDown: 0.42
   }
 };
 for (const c of CARS) c.gearbox = Object.assign({}, DEFAULT_GEARBOX, GEARBOX_BY_CAR[c.id] || {});
@@ -635,6 +672,21 @@ if (typeof window === 'undefined') {
   console.log('[smoke] nring-1to1', lenKm > 20.3 && lenKm < 21.1);
   const ns2 = nearestSample(NR.pts[500].x, NR.pts[500].y, null, 0);
   console.log('[smoke] nring nearestSample self-hit', ns2.i === 500);
+  // Meihan checks: finite geometry, drift-wide tarmac, sane world size
+  const MH = setTrack('meihan');
+  let mBad = 0, mMinW = 1e9;
+  for (const p of MH.pts) {
+    if (![p.x, p.y, p.w, p.tx, p.ty, p.nx, p.ny, p.curv].every(isFinite)) mBad++;
+    mMinW = Math.min(mMinW, p.w);
+  }
+  console.log('[smoke] meihan samples', MH.N, 'length', Math.round(MH.total),
+    'world', Math.round(MH.worldW) + 'x' + Math.round(MH.worldH),
+    'startIdx', MH.startIdx, 'bad', mBad, 'minWidth', Math.round(mMinW));
+  console.log('[smoke] meihan wide-enough', mMinW >= 140);
+  console.log('[smoke] gearboxes-ok', CARS.every(c => {
+    const gb = c.gearbox;
+    return gb.tops.length === gb.ratios.length && gb.tops[gb.tops.length - 1] === 1;
+  }));
   setTrack('ebisu');
 }
 
@@ -1215,10 +1267,11 @@ function startGame() {
       const cut = (this.shiftDir > 0 && this.shiftT > 0.1) ? 0.12 : 1;
       this.tg(this.engGain.gain, playing ? (0.05 + this.rpm * 0.052 + thr * 0.014) * cut : 0,
         this.shiftT > 0 ? 0.025 : 0.1);
-      // NA induction growl (silent on turbo cars)
+      // NA induction growl (silent on turbo cars) — per-car intake
+      // character: ITB honk on the AE86, V8 bellow, V10 ram-air scream
       if (E) {
         this.tg(this.naGain.gain,
-          playing ? thr * 0.055 * (1 - clamp(E.turbo || 0, 0, 1)) * (0.4 + this.rpm * 0.8) * cut : 0, 0.08);
+          playing ? thr * 0.055 * (E.naGrowl || 1) * (1 - clamp(E.turbo || 0, 0, 1)) * (0.4 + this.rpm * 0.8) * cut : 0, 0.08);
         this.tg(this.naFilt.frequency, 350 + this.rpm * 2200, 0.06);
       }
 
@@ -1226,10 +1279,13 @@ function startGame() {
       if (E) {
         const tAmt = E.turbo || 0;
         const bT = tAmt > 0 ? thr * tAmt * clamp(this.rpm * 1.5, 0, 1) : 0;
-        const tau = bT > this.boost ? 0.45 : 0.12;
+        // per-car spool: a big lazy single (A80) takes twice as long to
+        // build boost as a race anti-lag I6 (M4) — lag you can HEAR
+        const tau = bT > this.boost ? (E.spool || 0.45) : 0.12;
         this.boost += (bT - this.boost) * clamp(dt / tau, 0, 1);
-        // turbo speed follows exhaust flow: revs carry it, boost screams it
-        const whF = 620 + (0.4 * clamp(this.rpm, 0, 1.1) + 0.6 * this.boost) * 4300;
+        // turbo speed follows exhaust flow: revs carry it, boost screams
+        // it. tPitch scales the whistle: small T28 sings, big single hums.
+        const whF = (620 + (0.4 * clamp(this.rpm, 0, 1.1) + 0.6 * this.boost) * 4300) * (E.tPitch || 1);
         this.tg(this.tOsc.frequency, whF, 0.08);
         this.tg(this.tOsc2.frequency, whF * 1.004, 0.08);
         // whine emerges non-linearly — quiet spool, screaming top-end
@@ -1380,6 +1436,44 @@ function startGame() {
       s.connect(f); f.connect(g); g.connect(this.master);
       s.start(t); s.stop(t + 0.32);
     },
+    whoosh(v) { // pass-by air rush — traffic blowing past (or being blown past)
+      if (!this.ok) return;
+      try {
+        const c = this.ctx, t = c.currentTime;
+        const s = c.createBufferSource(); s.buffer = this.noiseBuf; s.loop = true;
+        const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.8;
+        f.frequency.setValueAtTime(320, t);
+        f.frequency.exponentialRampToValueAtTime(1500, t + 0.16);
+        f.frequency.exponentialRampToValueAtTime(240, t + 0.55);
+        const g = c.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.09 * clamp(v, 0.3, 1), t + 0.14);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+        s.connect(f); f.connect(g); g.connect(this.master);
+        s.start(t); s.stop(t + 0.65);
+      } catch (e) {}
+    },
+    thud() { // body-on-body contact with traffic
+      if (!this.ok) return;
+      try {
+        const c = this.ctx, t = c.currentTime;
+        const o = c.createOscillator(); o.type = 'sine';
+        o.frequency.setValueAtTime(95, t);
+        o.frequency.exponentialRampToValueAtTime(38, t + 0.12);
+        const g = c.createGain();
+        g.gain.setValueAtTime(0.16, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+        o.connect(g); g.connect(this.master);
+        o.start(t); o.stop(t + 0.2);
+        const s = c.createBufferSource(); s.buffer = this.noiseBuf;
+        const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700;
+        const g2 = c.createGain();
+        g2.gain.setValueAtTime(0.1, t);
+        g2.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+        s.connect(f); f.connect(g2); g2.connect(this.master);
+        s.start(t); s.stop(t + 0.1);
+      } catch (e) {}
+    },
     crackle(n) { // lift-off pops / mild backfire
       if (!this.ok) return;
       const c = this.ctx;
@@ -1520,14 +1614,15 @@ function startGame() {
   function prerenderWorld() {
     const g = bgctx;
     const P = TRACK.pts, N = TRACK.N;
+    const pal = stylePal();
     // dusk-lit grass
     const gr = g.createLinearGradient(0, 0, 0, bg.height);
-    gr.addColorStop(0, '#3b4839'); gr.addColorStop(0.55, '#294034'); gr.addColorStop(1, '#20342d');
+    gr.addColorStop(0, pal.grass[0]); gr.addColorStop(0.55, pal.grass[1]); gr.addColorStop(1, pal.grass[2]);
     g.fillStyle = gr; g.fillRect(0, 0, bg.width, bg.height);
     for (let i = 0; i < 10; i++) { // warm sun patches
       const x = rnd(bg.width), y = rnd(bg.height), r = rnd(200, 460);
       const rg = g.createRadialGradient(x, y, 0, x, y, r);
-      rg.addColorStop(0, 'rgba(255,150,120,0.06)'); rg.addColorStop(1, 'rgba(255,150,120,0)');
+      rg.addColorStop(0, 'rgba(' + pal.sun + ',0.06)'); rg.addColorStop(1, 'rgba(' + pal.sun + ',0)');
       g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
     }
     g.globalAlpha = 0.06;
@@ -1551,9 +1646,9 @@ function startGame() {
     g.fillStyle = '#413d4e'; g.fill(ribbon);
     g.save(); g.clip(ribbon); // dusk light wash on asphalt
     const ag = g.createLinearGradient(0, 0, 0, bg.height);
-    ag.addColorStop(0, 'rgba(255,120,160,0.10)');
-    ag.addColorStop(0.5, 'rgba(90,60,140,0.06)');
-    ag.addColorStop(1, 'rgba(20,10,40,0.16)');
+    ag.addColorStop(0, pal.wash[0]);
+    ag.addColorStop(0.5, pal.wash[1]);
+    ag.addColorStop(1, pal.wash[2]);
     g.fillStyle = ag; g.fillRect(0, 0, bg.width, bg.height);
     // banking cue lines on hard corners
     g.strokeStyle = 'rgba(255,255,255,0.05)'; g.lineWidth = 2;
@@ -1596,7 +1691,7 @@ function startGame() {
         const ex = s > 0 ? P[i].lx : P[i].rx, ey = s > 0 ? P[i].ly : P[i].ry;
         g.save();
         g.translate(ex, ey); g.rotate(Math.atan2(P[i].ty, P[i].tx));
-        g.fillStyle = ((i / 3) | 0) % 2 ? '#ff5a66' : '#f5f0ea';
+        g.fillStyle = ((i / 3) | 0) % 2 ? pal.curb[0] : pal.curb[1];
         g.fillRect(-9, s > 0 ? -3 : -8, 18, 11);
         g.restore();
       }
@@ -1628,7 +1723,7 @@ function startGame() {
     g.globalAlpha = 0.12; g.fillStyle = '#ffe9f4';
     g.font = '700 76px "Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif';
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText('恵比寿', 0, 0);
+    g.fillText(pal.kanji, 0, 0);
     g.restore();
 
     // start / finish checker band
@@ -1645,19 +1740,19 @@ function startGame() {
       g.restore();
     }
 
-    // neon edge lighting — pink left / cyan right
+    // neon edge lighting — per style: sakura pink/cyan, sodium amber/ember
     const le = new Path2D(), re = new Path2D();
     le.moveTo(P[0].lx, P[0].ly); re.moveTo(P[0].rx, P[0].ry);
     for (let i = 1; i < N; i++) { le.lineTo(P[i].lx, P[i].ly); re.lineTo(P[i].rx, P[i].ry); }
     le.closePath(); re.closePath();
     g.lineJoin = 'round';
-    g.shadowColor = '#ff5fb4'; g.shadowBlur = 16;
-    g.strokeStyle = '#ff6fc0'; g.lineWidth = 3; g.stroke(le);
-    g.shadowColor = '#31d5ff';
-    g.strokeStyle = '#3fd8ff'; g.stroke(re);
+    g.shadowColor = pal.neonL[0]; g.shadowBlur = 16;
+    g.strokeStyle = pal.neonL[1]; g.lineWidth = 3; g.stroke(le);
+    g.shadowColor = pal.neonR[0];
+    g.strokeStyle = pal.neonR[1]; g.stroke(re);
     g.shadowBlur = 0;
-    g.strokeStyle = '#ffdcef'; g.lineWidth = 1.1; g.stroke(le);
-    g.strokeStyle = '#dcf9ff'; g.stroke(re);
+    g.strokeStyle = pal.neonL[2]; g.lineWidth = 1.1; g.stroke(le);
+    g.strokeStyle = pal.neonR[2]; g.stroke(re);
 
     // small bushes / stones (flat ground clutter)
     for (let k = 0; k < 300; k++) {
@@ -1669,9 +1764,30 @@ function startGame() {
   }
 
   // ---------------------------------------------- 3D props
-  const SAKURA = ['#ff9ec9', '#ffb3d6', '#f77fb4', '#ffc7de', '#ff8fbe'];
+  // per-style world palette: Ebisu keeps the sakura dusk, Meihan gets a
+  // dry-grass sodium-vapour evening — same renderer, different soul
+  const STYLE_PAL = {
+    sakura: {
+      grass: ['#3b4839', '#294034', '#20342d'], sun: '255,150,120',
+      wash: ['rgba(255,120,160,0.10)', 'rgba(90,60,140,0.06)', 'rgba(20,10,40,0.16)'],
+      curb: ['#ff5a66', '#f5f0ea'], kanji: '恵比寿',
+      neonL: ['#ff5fb4', '#ff6fc0', '#ffdcef'], neonR: ['#31d5ff', '#3fd8ff', '#dcf9ff'],
+      tree: { cols: ['#ff9ec9', '#ffb3d6', '#f77fb4', '#ffc7de', '#ff8fbe'],
+              trunk: ['#4a2a3a', '#5a3448'], hi: 'rgba(255,224,238,0.85)' }
+    },
+    meihan: {
+      grass: ['#4a4a34', '#3d442f', '#2f3a2b'], sun: '255,180,90',
+      wash: ['rgba(255,150,60,0.10)', 'rgba(140,90,60,0.06)', 'rgba(28,16,32,0.18)'],
+      curb: ['#e04a30', '#f0e8d8'], kanji: '名阪',
+      neonL: ['#ffb14d', '#ffc06a', '#ffe9c8'], neonR: ['#ff6a3d', '#ff8a5e', '#ffd9c8'],
+      tree: { cols: ['#4c7a44', '#5b8a4d', '#3f6a3a', '#6b9a58', '#457540'],
+              trunk: ['#3a2c22', '#4a382b'], hi: 'rgba(214,244,196,0.55)' }
+    }
+  };
+  function stylePal() { return STYLE_PAL[TRACK.style] || STYLE_PAL.sakura; }
 
   function makeTree(x, y, s) {
+    const TP = stylePal().tree;   // captured at build — props are per-world
     const layers = [];
     const hs = [s * 0.95, s * 1.45, s * 1.95];
     for (let li = 0; li < 3; li++) {
@@ -1682,7 +1798,7 @@ function startGame() {
         blobs.push({
           dx: Math.cos(a) * r, dy: Math.sin(a) * r,
           r: rnd(0.30, 0.5) * s * (1 - li * 0.16),
-          col: shadeCol(SAKURA[(Math.random() * SAKURA.length) | 0], 0.72 + li * 0.16)
+          col: shadeCol(TP.cols[(Math.random() * TP.cols.length) | 0], 0.72 + li * 0.16)
         });
       }
       layers.push({ h: hs[li], blobs });
@@ -1694,7 +1810,7 @@ function startGame() {
     props.push({
       cx: x, cy: y, cr: s * 2.4 + 26,
       draw(g) {
-        cylPart(g, x, y, s * 0.14, 0, s * 0.9, '#4a2a3a', '#5a3448');
+        cylPart(g, x, y, s * 0.14, 0, s * 0.9, TP.trunk[0], TP.trunk[1]);
         for (const L of layers) {
           for (const b of L.blobs) {
             const p = liftW(x + b.dx, y + b.dy, L.h);
@@ -1702,7 +1818,7 @@ function startGame() {
             g.beginPath(); g.arc(p.x, p.y, b.r, 0, TAU); g.fill();
           }
         }
-        g.fillStyle = 'rgba(255,224,238,0.85)';
+        g.fillStyle = TP.hi;
         for (const b of hi) {
           const p = liftW(x + b.dx, y + b.dy, s * 1.95);
           g.beginPath(); g.arc(p.x, p.y, b.r, 0, TAU); g.fill();
@@ -1855,6 +1971,16 @@ function startGame() {
       makeTireStack(p.x + p.nx * s * (p.w / 2 + 20), p.y + p.ny * s * (p.w / 2 + 20),
         tireCols[(k + 4) % 3]);
     }
+    // Meihan signature: the sweeper's outside is one long tyre wall —
+    // interleaved between the shared stacks for a near-continuous barrier
+    if (TRACK.style === 'meihan') {
+      for (let k = -33; k <= 33; k += 2) {
+        const p = P[(wi + k * 4 + N * 4) % N];
+        const s = -(Math.sign(p.curv) || 1);
+        makeTireStack(p.x + p.nx * s * (p.w / 2 + 20), p.y + p.ny * s * (p.w / 2 + 20),
+          tireCols[((k + 33) / 2) % 3]);
+      }
+    }
 
     // --- start gantry (drives UNDER the beam — the 3D showpiece)
     {
@@ -1882,7 +2008,7 @@ function startGame() {
               g2.fillStyle = '#ffd166';
               g2.font = '900 13px system-ui, sans-serif';
               g2.textAlign = 'center'; g2.textBaseline = 'middle';
-              g2.fillText('EBISU CIRCUIT · 恵比寿', 0, 0);
+              g2.fillText(TRACKS[TRACK.id].name + ' · ' + stylePal().kanji, 0, 0);
               g2.restore();
             }
           });
@@ -1898,8 +2024,9 @@ function startGame() {
       });
     }
 
-    // --- torii gate in the sweeper infield
-    {
+    // --- torii gate in the sweeper infield (Ebisu only — Meihan is a
+    // paddock-and-tyres kind of place)
+    if (TRACK.style === 'sakura') {
       const p = P[wi];
       const s = Math.sign(p.curv) || 1;
       let d = p.w / 2 + 96;
@@ -2485,11 +2612,12 @@ function startGame() {
 
   // ---------------------------------------------- gameplay state
   let car = null;
-  const score = { total: 0, chain: 0, mult: 1, chainT: 0, grace: 0, best: 0, wallCalled: false };
+  const score = { total: 0, chain: 0, mult: 1, chainT: 0, grace: 0, best: 0, wallCalled: false, passes: 0 };
   const lap = { run: 0, cur: 0, best: null, last: null, count: 0, cp: 0, prevFrac: 0, rec: [], ghost: null, gi: 0, gspec: null };
   let lastGhostPos = null;      // shared by world render + minimap
   const smoke = [], petals = [], dust = [], pops = [];
   let callout = { en: '', jp: '', t: 99 };
+  let cornerToast = { name: '', t: 99 };   // Nordschleife corner-name toasts
 
   function addPop(x, y, txt, color, size) { pops.push({ x, y, txt, color, size, t: 0 }); }
   function setCallout(en, jp) { callout = { en, jp, t: 0 }; }
@@ -2602,7 +2730,7 @@ function startGame() {
       rpm: 0, gearI: 0, gear: 1, gearHold: 0.82, flash: 0, wallT: 0, wallZone: false
     };
     score.total = 0; score.chain = 0; score.mult = 1; score.chainT = 0;
-    score.grace = 0; score.best = 0; score.wallCalled = false;
+    score.grace = 0; score.best = 0; score.wallCalled = false; score.passes = 0;
     lap.run = 0; lap.cur = 0; lap.best = null; lap.last = null; lap.count = 0;
     lap.cp = 0; lap.prevFrac = 0; lap.rec = []; lap.ghost = null; lap.gi = 0;
     lap.gspec = null; lastGhostPos = null;
@@ -2621,8 +2749,10 @@ function startGame() {
     smoke.length = 0; dust.length = 0; pops.length = 0;
     for (let i = petals.length - 1; i >= 0; i--) if (!petals[i].amb) petals.splice(i, 1);
     callout = { en: '', jp: '', t: 99 };
+    cornerToast = { name: '', t: 99 };
     if (mctx) mctx.clearRect(0, 0, marks.width, marks.height);
     skids.length = 0;
+    spawnTraffic();
     cam.x = p.x; cam.y = p.y; cam.z = 1.1;
     cam.rot = TRACK.dyn ? -Math.PI / 2 - car.h : 0;
     G.wrong = 0; G.wrongDir = false; G.shake = 0;
@@ -2642,6 +2772,147 @@ function startGame() {
     score.wallCalled = false;
   }
 
+  // ---------------------------------------------- tourist traffic
+  // Touristenfahrten: the Nordschleife's public lapping day. A field of
+  // slower drivers — JDM tourists and GT weekend warriors — circulates
+  // the full 20.7 km. They brake into corners like real drivers, keep
+  // right and flick the indicator on when you close in ('Ring etiquette),
+  // and the quick ones swing left to pass the slow ones. Contact is soft
+  // but costs your combo — thread the gap cleanly and the pass pays.
+  const TRAFFIC_N = 14;
+  let traffic = [];
+  function trafficOn() { return TRACK.id === 'nring' && G.mode === 'free'; }
+  function trafficPlace(t) {
+    const P = TRACK.pts, N = TRACK.N;
+    const i0 = Math.floor(t.idx) % N, f = t.idx - Math.floor(t.idx);
+    const a = P[i0], b = P[(i0 + 1) % N];
+    const nx = lerp(a.nx, b.nx, f), ny = lerp(a.ny, b.ny, f);
+    t.x = lerp(a.x, b.x, f) + nx * t.lat;
+    t.y = lerp(a.y, b.y, f) + ny * t.lat;
+    return { a, b, f };
+  }
+  function spawnTraffic() {
+    traffic = [];
+    if (!trafficOn()) return;
+    const N = TRACK.N;
+    for (let i = 0; i < TRAFFIC_N; i++) {
+      const t = {
+        spec: CARS[(Math.random() * CARS.length) | 0],
+        idx: (((i + 0.3 + Math.random() * 0.4) / TRAFFIC_N) * N) % N,
+        lat: 0, latT: 0, home: rnd(-24, 44),   // slight keep-right bias
+        v: 220, pace: rnd(0.52, 0.86),
+        x: 0, y: 0, h: 0, steerV: 0, braking: false,
+        blink: 0, hitT: 0, whooshT: 0, wasAhead: null
+      };
+      t.lat = t.latT = t.home;
+      const s = trafficPlace(t);
+      t.h = Math.atan2(lerp(s.a.ty, s.b.ty, s.f), lerp(s.a.tx, s.b.tx, s.f));
+      traffic.push(t);
+    }
+  }
+  function updateTraffic(dt) {
+    if (!traffic.length || !car) return;
+    const P = TRACK.pts, N = TRACK.N;
+    for (const t of traffic) {
+      t.blink = Math.max(0, t.blink - dt);
+      t.hitT = Math.max(0, t.hitT - dt);
+      t.whooshT = Math.max(0, t.whooshT - dt);
+      const i0 = Math.floor(t.idx) % N;
+      // corner speed: read the curvature ahead and brake into it
+      let curv = 0;
+      const look = 4 + Math.min(14, (t.v / 60) | 0);
+      for (let k = 1; k <= look; k++) curv = Math.max(curv, Math.abs(P[(i0 + k) % N].curv));
+      let tv = t.pace * lerp(690, 195, clamp(curv / 0.8, 0, 1));
+      // 'Ring etiquette: keep right + indicator when the player closes in
+      let latT = t.home;
+      const rel = (i0 - car.prog + N) % N;      // samples this car is ahead
+      if (rel < N / 2 && rel < 36 && car.speed > t.v + 40) {
+        latT = P[i0].w / 2 - 42;
+        t.blink = 0.5;
+      }
+      // traffic-on-traffic: follow the car ahead or swing left and pass
+      for (const o of traffic) {
+        if (o === t) continue;
+        const gap = (Math.floor(o.idx) - i0 + N) % N;
+        if (gap > 0 && gap < 20) {
+          if (t.pace > o.pace + 0.08 && gap < 14) latT = -(P[i0].w / 2 - 46);
+          if (gap < 7 && Math.abs(o.lat - t.lat) < 34) tv = Math.min(tv, o.v - 10);
+        }
+      }
+      t.latT = latT;
+      t.braking = tv < t.v - 40;
+      t.v = Math.max(60, t.v + clamp(tv - t.v, -560 * dt, 230 * dt));
+      t.idx += (t.v * dt) / (P[i0].segLen || 80);
+      while (t.idx >= N) t.idx -= N;
+      while (t.idx < 0) t.idx += N;
+      const dLat = (t.latT - t.lat) * clamp(dt * 1.6, 0, 1);
+      t.lat += dLat;
+      const s = trafficPlace(t);
+      const th = Math.atan2(lerp(s.a.ty, s.b.ty, s.f), lerp(s.a.tx, s.b.tx, s.f));
+      t.h += angNorm(th - t.h) * clamp(dt * 7, 0, 1);
+      t.steerV = clamp(dLat * 0.4, -1, 1);
+
+      // ----- player interaction: whoosh, contact, overtake scoring
+      const dx = t.x - car.x, dy = t.y - car.y, d2 = dx * dx + dy * dy;
+      if (d2 < 120 * 120) {
+        const tvx = Math.cos(t.h) * t.v, tvy = Math.sin(t.h) * t.v;
+        const rv = Math.hypot(car.vx - tvx, car.vy - tvy);
+        if (d2 > 40 * 40 && d2 < 95 * 95 && rv > 170 && t.whooshT <= 0 && G.state === 'play') {
+          SND.whoosh(clamp(rv / 520, 0.3, 1));
+          t.whooshT = 2.2;
+        }
+        const d = Math.sqrt(d2) || 1;
+        if (d < 34) {
+          const nx2 = dx / d, ny2 = dy / d;
+          car.x -= nx2 * (34 - d) * 0.8; car.y -= ny2 * (34 - d) * 0.8;
+          const rel2 = (car.vx - tvx) * nx2 + (car.vy - tvy) * ny2;
+          if (rel2 > 0) { car.vx -= nx2 * rel2 * 0.85; car.vy -= ny2 * rel2 * 0.85; }
+          if (t.hitT <= 0) {
+            t.hitT = 1;
+            G.shake = Math.max(G.shake, 2.2);
+            SND.thud(); rumble(0.7, 150);
+            if (score.chain > 1) {
+              addPop(car.x, car.y - 30, 'CONTACT! 接触', '#ff6a6a', 18);
+              score.chain = 0; score.mult = 1; score.chainT = 0; score.grace = 0;
+            }
+          }
+        }
+      }
+      // overtake scoring: latch which side of the player each car is on.
+      // The latch ALWAYS resyncs on a flip; only a genuine near-player
+      // ahead→behind crossover scores. A far flip (the 10 km antipode,
+      // or a tourist lapping a parked player) resyncs silently, and a
+      // per-tourist cooldown stops the brake-and-repass shuttle farm.
+      const aheadNow = rel < N / 2;
+      if (t.wasAhead === null) t.wasAhead = aheadNow;
+      else if (t.wasAhead !== aheadNow) {
+        if (t.wasAhead && !aheadNow && Math.min(rel, N - rel) < 90 &&
+            G.state === 'play' && G.playT - (t.lastPassT || -99) > 20) {
+          t.lastPassT = G.playT;
+          score.passes++;
+          score.total += 500;
+          addPop(t.x, t.y - 28, 'PASS! +500', '#7dffb0', 16);
+          if (score.passes === 3) { setCallout('TRAFFIC SLAYER!', '追い越し職人！'); SND.callout(); }
+          else if (score.passes === 10) { setCallout('FLOW MASTER!', '流れの達人！'); SND.callout(); }
+          else SND.bank();
+        }
+        t.wasAhead = aheadNow;
+      }
+    }
+  }
+
+  function switchTrack(id) {
+    if (!TRACKS[id] || G.track === id) return;
+    G.track = id;
+    setTrack(G.track); buildWorld();
+    const sp = TRACK.pts[TRACK.startIdx];
+    cam.x = sp.x; cam.y = sp.y; cam.rot = 0;  // snap the attract cam
+    G.menuI = TRACK.startIdx; G.menuD = 0;
+    const sv = tsave().sel;
+    G.sel = Number.isInteger(sv) ? clamp(sv, 0, roster().length - 1) : 0;
+    SND.beep(520, 0.05, 'square', 0.045);
+  }
+
   function onPress(k) {
     if (k === 'mute') { SND.toggleMute(); return; }
     switch (G.state) {
@@ -2650,14 +2921,10 @@ function startGame() {
         break;
       case 'track':
         if (k === 'left' || k === 'right' || k === 'up' || k === 'down') {
-          G.track = G.track === 'ebisu' ? 'nring' : 'ebisu';
-          setTrack(G.track); buildWorld();
-          const sp = TRACK.pts[TRACK.startIdx];
-          cam.x = sp.x; cam.y = sp.y; cam.rot = 0;  // snap the attract cam
-          G.menuI = TRACK.startIdx; G.menuD = 0;
-          const sv = tsave().sel;
-          G.sel = Number.isInteger(sv) ? clamp(sv, 0, roster().length - 1) : 0;
-          SND.beep(520, 0.05, 'square', 0.045);
+          const ids = Object.keys(TRACKS);
+          const dir = (k === 'left' || k === 'up') ? -1 : 1;
+          const i = (ids.indexOf(G.track) + dir + ids.length) % ids.length;
+          switchTrack(ids[i]);
         }
         if (k === 'enter') { SAVE.set('track', G.track); G.state = 'garage'; }
         if (k === 'esc' || k === 'back') G.state = 'title';
@@ -2852,6 +3119,16 @@ function startGame() {
     const steps = Math.max(1, Math.ceil(dt * 120 - 1e-6));  // eps: float dt
     const hh = dt / steps;
     for (let i = 0; i < steps; i++) stepCar(hh);
+    updateTraffic(dt);
+
+    // corner-name toast: crossing a marshal board flashes the real name
+    if (TRACK.id === 'nring') {
+      for (const [i0, name] of NRING_SIGNS) {
+        const rel = (car.prog - nringSignIdx(i0) + TRACK.N) % TRACK.N;
+        if (rel < 3 && cornerToast.name !== name) { cornerToast = { name, t: 0 }; break; }
+      }
+      cornerToast.t += dt;
+    }
 
     // drift scoring: angle x speed x duration, chained combos
     // (spinLock gates accrual — a spin must not instantly re-chain)
@@ -3619,6 +3896,11 @@ function startGame() {
 
   // ---------------------------------------------- world render pass
   function renderWorld() {
+    // base clear: regions past the world edge would otherwise keep last
+    // frame's pixels and saturate under the additive sky overlay
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = '#170b22';
+    ctx.fillRect(0, 0, W, H);
     const jx = G.shake > 0 ? (Math.random() * 2 - 1) * G.shake * 5 : 0;
     const jy = G.shake > 0 ? (Math.random() * 2 - 1) * G.shake * 5 : 0;
     ctx.setTransform(DPR, 0, 0, DPR, W / 2 * DPR, H / 2 * DPR);
@@ -3666,6 +3948,30 @@ function startGame() {
         list.push({
           d: (gp2.x - cam.x) ** 2 + (gp2.y - cam.y) ** 2,
           draw: g => drawCarWorld(g, gp2.x, gp2.y, gp2.h, gs, { alpha: 0.34, glow: false })
+        });
+      }
+    }
+    if (inRace && traffic.length) {
+      for (const t of traffic) {
+        if (Math.abs(t.x - cam.x) > vw + 60 || Math.abs(t.y - cam.y) > vh + 60) continue;
+        const tt = t;
+        list.push({
+          d: (tt.x - cam.x) ** 2 + (tt.y - cam.y) ** 2,
+          draw: g => {
+            drawCarWorld(g, tt.x, tt.y, tt.h, tt.spec, { steer: tt.steerV, brake: tt.braking });
+            if (tt.blink > 0 && ((G.t * 5) | 0) % 2 === 0) {
+              // right-side indicators: "seen you — passing side is left"
+              const ch = Math.cos(tt.h), sh = Math.sin(tt.h);
+              g.save();
+              g.shadowColor = '#ffb14d'; g.shadowBlur = 9; g.fillStyle = '#ffcf6e';
+              for (const lx of [19, -19]) {
+                g.beginPath();
+                g.arc(tt.x + ch * lx - sh * 9.5, tt.y + sh * lx + ch * 9.5, 2.3, 0, TAU);
+                g.fill();
+              }
+              g.restore();
+            }
+          }
         });
       }
     }
@@ -3722,6 +4028,10 @@ function startGame() {
       g1.addColorStop(0, 'rgba(150,190,210,0.13)');
       g1.addColorStop(0.42, 'rgba(120,160,150,0.05)');
       g1.addColorStop(1, 'rgba(12,30,40,0.24)');
+    } else if (TRACK.style === 'meihan') {
+      g1.addColorStop(0, 'rgba(255,150,60,0.14)');
+      g1.addColorStop(0.42, 'rgba(200,110,70,0.05)');
+      g1.addColorStop(1, 'rgba(25,12,40,0.26)');
     } else {
       g1.addColorStop(0, 'rgba(255,118,168,0.15)');
       g1.addColorStop(0.42, 'rgba(255,150,92,0.05)');
@@ -3814,14 +4124,24 @@ function startGame() {
     }
     ctx.restore();
 
-    // lap board (bottom-left, time attack)
+    // lap board (bottom-left) — the 'Ring also reads out lap distance
+    const nr = TRACK.id === 'nring';
+    const kmLbl = nr
+      ? ((((car.prog - TRACK.startIdx + TRACK.N) % TRACK.N) / TRACK.N) * 20.7).toFixed(1) + '/20.7 km'
+      : '';
     if (G.mode === 'tt') {
-      const bx = 18, by = H - 108;
-      panel(ctx, bx, by, 205, 92, 'rgba(85,224,255,0.5)');
+      const bx = 18, by = H - (nr ? 126 : 108);
+      panel(ctx, bx, by, 205, nr ? 110 : 92, 'rgba(85,224,255,0.5)');
       txt(ctx, 'タイムアタック TIME ATTACK', bx + 12, by + 16, 11, '#9fe8ff', 'left');
       txt(ctx, 'LAP ' + (lap.count + 1) + '   ' + fmtT(lap.cur), bx + 12, by + 38, 17, '#fff', 'left', 800);
       txt(ctx, 'BEST ' + fmtT(lap.best), bx + 12, by + 60, 13, '#7dffb0', 'left');
       txt(ctx, 'LAST ' + fmtT(lap.last), bx + 12, by + 78, 13, '#cfd8ff', 'left');
+      if (nr) txt(ctx, 'DIST ' + kmLbl, bx + 12, by + 96, 13, '#ffb14d', 'left');
+    } else if (trafficOn()) {
+      // kept as short as the old freestyle line — it shares the bottom
+      // edge with the centred controls hint and the touch buttons
+      txt(ctx, 'TOURIST DRIVE · ' + kmLbl + ' · PASS ' + score.passes,
+        20, H - 22, 12, 'rgba(255,255,255,0.6)', 'left');
     } else {
       txt(ctx, 'フリー走行 FREESTYLE · BEST CHAIN ' + Math.round(Math.max(score.best, tsave().bestChain || 0)).toLocaleString(),
         18 + 2, H - 22, 12, 'rgba(255,255,255,0.6)', 'left');
@@ -3838,6 +4158,15 @@ function startGame() {
       ctx.scale(sc, sc);
       txt(ctx, callout.en, 0, -14, 42, '#ff7ab8', 'center', 900, 22);
       txt(ctx, callout.jp, 0, 26, 24, '#ffd166', 'center', 800, 14);
+      ctx.restore();
+    }
+
+    // Nordschleife corner-name toast — every board you cross calls out
+    if (nr && cornerToast.name && cornerToast.t < 2.4) {
+      const a = cornerToast.t < 1.8 ? 1 : clamp((2.4 - cornerToast.t) / 0.6, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = a;
+      txt(ctx, cornerToast.name, W / 2, H * 0.1, 17, '#9fe8ff', 'center', 900, 8);
       ctx.restore();
     }
 
@@ -3869,6 +4198,12 @@ function startGame() {
     ctx.fill();
     ctx.drawImage(mm, x, y, w, h2);
     const k = w / TRACK.worldW;
+    if (traffic.length) {
+      ctx.fillStyle = '#ffb14d';
+      for (const t of traffic) {
+        ctx.beginPath(); ctx.arc(x + t.x * k, y + t.y * k, 1.5, 0, TAU); ctx.fill();
+      }
+    }
     if (lastGhostPos) {
       ctx.fillStyle = 'rgba(255,255,255,0.55)';
       ctx.beginPath(); ctx.arc(x + lastGhostPos.x * k, y + lastGhostPos.y * k, 2.2, 0, TAU); ctx.fill();
@@ -3954,15 +4289,15 @@ function startGame() {
     const bob = Math.sin(G.t * 1.6) * 6;
     txt(ctx, '桜と鋼', W / 2, cy - 66 + bob, Math.min(46, W * 0.085), '#ffd166', 'center', 900, 22);
     txt(ctx, 'SAKURA & STAHL', W / 2, cy + bob, Math.min(58, W * 0.10), '#fff', 'center', 900, 26, '#ff5fb4');
-    txt(ctx, 'EBISU × NORDSCHLEIFE', W / 2, cy + 52 + bob, 17, '#9fe8ff', 'center', 800, 10);
-    txt(ctx, 'NEO 3D · 10 MACHINES · 2 CIRCUITS · 実寸ニュル', W / 2, cy + 82 + bob, 13, '#7dffb0', 'center', 800, 6);
+    txt(ctx, 'EBISU × MEIHAN × NORDSCHLEIFE', W / 2, cy + 52 + bob, Math.min(17, W * 0.042), '#9fe8ff', 'center', 800, 10);
+    txt(ctx, 'NEO 3D · 10 MACHINES · 3 CIRCUITS · 実寸ニュル', W / 2, cy + 82 + bob, 13, '#7dffb0', 'center', 800, 6);
     const bw = 260, bx = W / 2 - bw / 2, by = H * 0.66;
     const pulse = 0.6 + 0.4 * Math.sin(G.t * 3);
     panel(ctx, bx, by, bw, 54, 'rgba(255,209,102,' + pulse + ')', '#ffd166');
     txt(ctx, pad.connected ? 'A / START · スタート' : (G.touch ? 'タップ TAP TO START' : 'ENTER · スタート'),
       W / 2, by + 28, 19, '#ffd166', 'center', 900, 10);
     zones.push({ x: 0, y: 0, w: W, h: H, act: () => onPress('enter') });
-    txt(ctx, '桜 dusk · 鋼 green hell · gears & turbo', W / 2, H - 24, 12, 'rgba(255,255,255,0.5)');
+    txt(ctx, '桜 dusk · 名阪 sodium · 鋼 green hell — gears, turbo & traffic', W / 2, H - 24, 12, 'rgba(255,255,255,0.5)');
   }
 
   // -------- track select: minimap silhouettes side by side
@@ -3971,8 +4306,8 @@ function startGame() {
     ctx.fillRect(0, 0, W, H);
     txt(ctx, 'コース COURSE', W / 2, H * 0.12, 28, '#fff', 'center', 900, 16, '#b06bff');
     const ids = Object.keys(TRACKS);
-    const cw = Math.min(300, W * 0.42), ch = Math.min(250, H * 0.44);
-    const gap = Math.min(40, W * 0.04);
+    const cw = Math.min(280, W * (ids.length > 2 ? 0.295 : 0.42)), ch = Math.min(250, H * 0.44);
+    const gap = Math.min(30, W * 0.025);
     let x = W / 2 - (cw * ids.length + gap * (ids.length - 1)) / 2;
     const y = H * 0.24;
     for (const id of ids) {
@@ -4002,15 +4337,18 @@ function startGame() {
         ctx.stroke();
         ctx.restore();
       }
-      txt(ctx, t.name, x + cw / 2, y + ch - 74, 19, on ? '#ffd166' : '#fff', 'center', 900, on ? 8 : 0);
-      txt(ctx, t.jp + ' · ' + t.len, x + cw / 2, y + ch - 50, 12, '#ffb7d5', 'center', 800);
-      wrapText(t.desc, x + cw / 2, y + ch - 28, cw - 30, 11, 'rgba(255,255,255,0.7)');
+      // fonts scale with the card so three cards survive a phone screen;
+      // tiny cards drop the jp name + blurb rather than spill over
+      const nameFs = Math.max(10, Math.min(19, cw * 0.105));
+      txt(ctx, t.name, x + cw / 2, y + ch - 74, nameFs, on ? '#ffd166' : '#fff', 'center', 900, on ? 8 : 0);
+      txt(ctx, cw < 190 ? t.len : t.jp + ' · ' + t.len, x + cw / 2, y + ch - 50, 12, '#ffb7d5', 'center', 800);
+      if (cw >= 190) wrapText(t.desc, x + cw / 2, y + ch - 28, cw - 30, 11, 'rgba(255,255,255,0.7)');
       const id2 = id;
       zones.push({
         x, y, w: cw, h: ch,
         act: () => {
           if (G.track === id2) onPress('enter');
-          else onPress('left');   // toggle (only two tracks)
+          else switchTrack(id2);
         }
       });
       x += cw + gap;
@@ -4116,9 +4454,13 @@ function startGame() {
     ctx.fillStyle = 'rgba(14,5,28,0.55)';
     ctx.fillRect(0, 0, W, H);
     txt(ctx, 'モード MODE', W / 2, H * 0.16, 28, '#fff', 'center', 900, 16, '#b06bff');
+    const isN = G.track === 'nring';
     const defs = [
-      ['free', 'フリー走行', 'FREESTYLE', 'chain drifts, chase the combo'],
-      ['tt', 'タイムアタック', 'TIME ATTACK', 'race your ghost for the lap record']
+      isN
+        ? ['free', 'ツーリスト走行', 'TOURIST DRIVE', 'lapping day — hunt and pass the traffic']
+        : ['free', 'フリー走行', 'FREESTYLE', 'chain drifts, chase the combo'],
+      ['tt', 'タイムアタック', 'TIME ATTACK',
+        isN ? 'closed track, zero traffic — race your ghost' : 'race your ghost for the lap record']
     ];
     const cw = Math.min(300, W * 0.42), ch = 168;
     const gap = Math.min(40, W * 0.04);
@@ -4208,8 +4550,12 @@ function startGame() {
   }
 
   let last = performance.now();
-  function frame(now) {
-    let dt = Math.min(0.05, (now - last) / 1000);
+  // tick = one simulated+rendered frame; frame() re-arms itself on rAF.
+  // Split so tests can pump deterministic frames while the tab is hidden.
+  function tick(now) {
+    // clamp BOTH ends: a non-monotonic timestamp (suspend/resume, test
+    // pumps) must never produce a negative dt — it inverts every clamp
+    let dt = clamp((now - last) / 1000, 0, 0.05);
     last = now;
     G.t += dt;
     padMenus();
@@ -4241,6 +4587,7 @@ function startGame() {
         const gas = Math.max((keys.up || touchState().up) ? 1 : 0, padState().thr);
         car.rpm = 0.25 + 0.2 * Math.sin(G.t * 9) + gas * 0.4;
         car.inThr = lerp(car.inThr, gas, clamp(dt * 6, 0, 1));
+        updateTraffic(dt);    // tourists keep lapping through the countdown
         updateParticles(dt);
         if (G.cd <= -0.6) G.state = 'play';
         break;
@@ -4253,6 +4600,9 @@ function startGame() {
     }
     SND.update(dt, car, G.state === 'play' || G.state === 'count');
     render();
+  }
+  function frame(now) {
+    tick(now);
     requestAnimationFrame(frame);
   }
 
@@ -4260,8 +4610,8 @@ function startGame() {
     window.__dbg = {
       get G() { return G; }, get car() { return car; },
       get score() { return score; }, get lap() { return lap; },
-      get TRACK() { return TRACK; },
-      cam, props, CARS, onPress, fmtT, SND, SAVE
+      get TRACK() { return TRACK; }, get traffic() { return traffic; },
+      cam, props, CARS, onPress, fmtT, SND, SAVE, switchTrack, tick
     };
   }
   requestAnimationFrame(frame);
