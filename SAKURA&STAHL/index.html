@@ -58,6 +58,10 @@
    overtake scoring, contact physics), authentic 5/6-speed ratios and
    shift times per car, per-car turbo pitch / spool lag / NA growl,
    corner-name callouts and lap-distance HUD on the 'Ring.
+   v2.6: Quran player — all 114 surahs by Nasser Al Qatami streamed from
+   mp3quran.net, off by default, quick-start on Q / قرآن touch button /
+   pause menu, auto-advancing surahs, game mix ducked to a whisper while
+   it plays, surah position persisted.
    ===================================================================== */
 
 // ------------------------------------------------ tiny math
@@ -798,7 +802,8 @@ function startGame() {
     ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
     Space: 'eb', ShiftLeft: 'eb', ShiftRight: 'eb',
     Enter: 'enter', Escape: 'esc', KeyP: 'esc',
-    KeyR: 'reset', Backspace: 'back', KeyM: 'mute'
+    KeyR: 'reset', Backspace: 'back', KeyM: 'mute',
+    KeyQ: 'quran', BracketLeft: 'qprev', BracketRight: 'qnext'
   };
   window.addEventListener('keydown', e => {
     const k = KEYMAP[e.code];
@@ -1085,7 +1090,7 @@ function startGame() {
         const AC = window.AudioContext || window.webkitAudioContext;
         const c = this.ctx = new AC();
         // master: gain -> compressor -> out
-        this.master = c.createGain(); this.master.gain.value = this.muted ? 0 : 0.85;
+        this.master = c.createGain(); this.master.gain.value = this.masterLevel();
         this.comp = c.createDynamicsCompressor();
         this.comp.threshold.value = -20; this.comp.ratio.value = 6;
         this.master.connect(this.comp); this.comp.connect(c.destination);
@@ -1223,10 +1228,18 @@ function startGame() {
     tg(param, v, t = 0.05) { // smooth set, avoids clicks
       try { param.setTargetAtTime(v, this.ctx.currentTime, t); } catch (e) {}
     },
+    // game volume ducks to a whisper while the Quran plays — cruise and
+    // listen; the engine stays just barely there under the recitation
+    masterLevel() {
+      return this.muted ? 0 : (QURAN.on ? 0.04 : 0.85);
+    },
+    applyMaster(fast) {
+      if (this.master) this.tg(this.master.gain, this.masterLevel(), fast ? 0.03 : 0.45);
+    },
     toggleMute() {
       this.muted = !this.muted;
       SAVE.set('mute', this.muted);
-      if (this.master) this.tg(this.master.gain, this.muted ? 0 : 0.85, 0.03);
+      this.applyMaster(true);
     },
     update(dt, car, playing) {
       if (!this.ok) return;
@@ -1521,6 +1534,83 @@ function startGame() {
       this.beep(880, 0.06, 'triangle', 0.05);
       setTimeout(() => this.beep(1318, 0.12, 'triangle', 0.05), 60);
     }
+  };
+
+  // ---------------------------------------------- Quran player
+  // All 114 surahs recited by Nasser Al Qatami (ناصر القطامي), streamed
+  // per-surah from mp3quran.net (CORS-open Cloudflare CDN, verified).
+  // OFF by default — Q (or the pause menu / the قرآن touch button)
+  // quick-starts it. While it plays the whole game mix ducks to a
+  // whisper via SND.masterLevel, and surahs auto-advance so a full
+  // Nordschleife cruise is one continuous listen. Only the surah
+  // position persists; playback never auto-resumes on load.
+  const SURAHS = ('الفاتحة|Al-Fatihah,البقرة|Al-Baqarah,آل عمران|Aal Imran,النساء|An-Nisa,المائدة|Al-Maidah,' +
+    'الأنعام|Al-Anam,الأعراف|Al-Araf,الأنفال|Al-Anfal,التوبة|At-Tawbah,يونس|Yunus,هود|Hud,يوسف|Yusuf,' +
+    'الرعد|Ar-Rad,إبراهيم|Ibrahim,الحجر|Al-Hijr,النحل|An-Nahl,الإسراء|Al-Isra,الكهف|Al-Kahf,مريم|Maryam,' +
+    'طه|Taha,الأنبياء|Al-Anbiya,الحج|Al-Hajj,المؤمنون|Al-Muminun,النور|An-Nur,الفرقان|Al-Furqan,' +
+    'الشعراء|Ash-Shuara,النمل|An-Naml,القصص|Al-Qasas,العنكبوت|Al-Ankabut,الروم|Ar-Rum,لقمان|Luqman,' +
+    'السجدة|As-Sajdah,الأحزاب|Al-Ahzab,سبأ|Saba,فاطر|Fatir,يس|Ya-Sin,الصافات|As-Saffat,ص|Sad,' +
+    'الزمر|Az-Zumar,غافر|Ghafir,فصلت|Fussilat,الشورى|Ash-Shura,الزخرف|Az-Zukhruf,الدخان|Ad-Dukhan,' +
+    'الجاثية|Al-Jathiyah,الأحقاف|Al-Ahqaf,محمد|Muhammad,الفتح|Al-Fath,الحجرات|Al-Hujurat,ق|Qaf,' +
+    'الذاريات|Adh-Dhariyat,الطور|At-Tur,النجم|An-Najm,القمر|Al-Qamar,الرحمن|Ar-Rahman,الواقعة|Al-Waqiah,' +
+    'الحديد|Al-Hadid,المجادلة|Al-Mujadilah,الحشر|Al-Hashr,الممتحنة|Al-Mumtahanah,الصف|As-Saff,' +
+    'الجمعة|Al-Jumuah,المنافقون|Al-Munafiqun,التغابن|At-Taghabun,الطلاق|At-Talaq,التحريم|At-Tahrim,' +
+    'الملك|Al-Mulk,القلم|Al-Qalam,الحاقة|Al-Haqqah,المعارج|Al-Maarij,نوح|Nuh,الجن|Al-Jinn,' +
+    'المزمل|Al-Muzzammil,المدثر|Al-Muddaththir,القيامة|Al-Qiyamah,الإنسان|Al-Insan,المرسلات|Al-Mursalat,' +
+    'النبأ|An-Naba,النازعات|An-Naziat,عبس|Abasa,التكوير|At-Takwir,الانفطار|Al-Infitar,المطففين|Al-Mutaffifin,' +
+    'الانشقاق|Al-Inshiqaq,البروج|Al-Buruj,الطارق|At-Tariq,الأعلى|Al-Ala,الغاشية|Al-Ghashiyah,الفجر|Al-Fajr,' +
+    'البلد|Al-Balad,الشمس|Ash-Shams,الليل|Al-Layl,الضحى|Ad-Duha,الشرح|Ash-Sharh,التين|At-Tin,' +
+    'العلق|Al-Alaq,القدر|Al-Qadr,البينة|Al-Bayyinah,الزلزلة|Az-Zalzalah,العاديات|Al-Adiyat,القارعة|Al-Qariah,' +
+    'التكاثر|At-Takathur,العصر|Al-Asr,الهمزة|Al-Humazah,الفيل|Al-Fil,قريش|Quraysh,الماعون|Al-Maun,' +
+    'الكوثر|Al-Kawthar,الكافرون|Al-Kafirun,النصر|An-Nasr,المسد|Al-Masad,الإخلاص|Al-Ikhlas,الفلق|Al-Falaq,' +
+    'الناس|An-Nas').split(',');
+  const QURAN = {
+    on: false, loading: false, errUntil: 0,
+    idx: clamp(SAVE.data.quranIdx | 0, 0, 113),
+    audio: null,
+    cur() {
+      const s = SURAHS[this.idx].split('|');
+      return { n: this.idx + 1, ar: s[0], en: s[1] };
+    },
+    url() {
+      return 'https://server6.mp3quran.net/qtm/' + String(this.idx + 1).padStart(3, '0') + '.mp3';
+    },
+    ensure() {
+      if (this.audio) return;
+      const a = this.audio = new Audio();
+      a.preload = 'none';
+      a.addEventListener('playing', () => { this.loading = false; });
+      a.addEventListener('ended', () => {
+        if (!this.on) return;
+        this.idx = (this.idx + 1) % 114;
+        SAVE.set('quranIdx', this.idx);
+        this.start();
+      });
+      a.addEventListener('error', () => {
+        if (this.on) { this.errUntil = G.t + 4; this.stop(); }
+      });
+    },
+    start() {
+      this.ensure();
+      this.errUntil = 0;
+      this.on = true;
+      // pause/resume semantics: only (re)load when the surah changed —
+      // toggling Q mid-surah resumes where the recitation left off, and
+      // same-src reloads can't abort an in-flight play() into a false error
+      const want = this.url();
+      if (this.audio.src !== want) { this.loading = true; this.audio.src = want; }
+      const p = this.audio.play();
+      if (p && p.catch) p.catch(() => { if (this.on) { this.errUntil = G.t + 4; this.stop(); } });
+      SND.applyMaster();
+    },
+    stop() {
+      this.on = false; this.loading = false;
+      if (this.audio) { try { this.audio.pause(); } catch (e) {} }
+      SND.applyMaster();
+    },
+    toggle() { this.on ? this.stop() : this.start(); },
+    next() { this.idx = (this.idx + 1) % 114; SAVE.set('quranIdx', this.idx); if (this.on) this.start(); },
+    prev() { this.idx = (this.idx + 113) % 114; SAVE.set('quranIdx', this.idx); if (this.on) this.start(); }
   };
 
   // ---------------------------------------------- fake-3D helpers
@@ -2915,6 +3005,9 @@ function startGame() {
 
   function onPress(k) {
     if (k === 'mute') { SND.toggleMute(); return; }
+    if (k === 'quran') { QURAN.toggle(); return; }
+    if (k === 'qprev') { QURAN.prev(); return; }
+    if (k === 'qnext') { QURAN.next(); return; }
     switch (G.state) {
       case 'title':
         if (k === 'enter') G.state = 'track';
@@ -4182,7 +4275,7 @@ function startGame() {
     if (lap.run < 6 && (!G.touch || pad.connected))
       txt(ctx, pad.connected || G.t - G.padT < 10
         ? 'STICK steer · RT gas · LT brake · A handbrake · Y respawn · START pause'
-        : 'WASD/矢印 drive · SPACE handbrake · R respawn · ESC pause · M mute', W / 2, H - 20,
+        : 'WASD/矢印 drive · SPACE handbrake · R respawn · ESC pause · M mute · Q quran', W / 2, H - 20,
         12, 'rgba(255,255,255,0.55)');
   }
 
@@ -4237,20 +4330,37 @@ function startGame() {
     ctx.fillRect(0, 0, W, H);
     txt(ctx, 'ポーズ PAUSED', W / 2, H * 0.34, 42, '#fff', 'center', 900, 18, '#b06bff');
     const sndLbl = 'サウンド sound: ' + (SND.muted ? 'OFF' : 'ON');
+    const qLbl = 'قرآن quran: ' + (QURAN.on ? QURAN.cur().en : 'OFF');
     const items = touchControlsEnabled()
       ? [['tap here → resume', () => onPress('enter')],
          ['respawn リスポーン', () => onPress('reset')],
          [sndLbl, () => onPress('mute')],
+         [qLbl, () => QURAN.toggle()],
+         ...(QURAN.on ? [[null, null, 'qnav']] : []),
          ['title タイトル', () => onPress('back')]]
       : pad.connected
       ? [['A / START resume · Y respawn', null],
          [sndLbl + ' · M', null],
+         [qLbl + ' · Q', null],
          ['B title', null]]
       : [['ENTER resume · R respawn', null],
          [sndLbl + ' · M', null],
+         [qLbl + ' · Q  ·  [ ] surah', null],
          ['BACKSPACE title', null]];
     let y = H * 0.48;
-    for (const [label, act] of items) {
+    for (const [label, act, kind] of items) {
+      if (kind === 'qnav') {
+        // split row: previous / next surah for touch players
+        const bw = 300, half = bw / 2 - 6, bx = W / 2 - bw / 2;
+        panel(ctx, bx, y - 22, half, 44, 'rgba(125,255,176,0.4)');
+        panel(ctx, bx + bw - half, y - 22, half, 44, 'rgba(125,255,176,0.4)');
+        zones.push({ x: bx, y: y - 22, w: half, h: 44, act: () => QURAN.prev() });
+        zones.push({ x: bx + bw - half, y: y - 22, w: half, h: 44, act: () => QURAN.next() });
+        txt(ctx, '◀ surah', bx + half / 2, y, 16, '#7dffb0', 'center', 700);
+        txt(ctx, 'surah ▶', bx + bw - half / 2, y, 16, '#7dffb0', 'center', 700);
+        y += 56;
+        continue;
+      }
       if (act) {
         const bw = 300, bx = W / 2 - bw / 2;
         panel(ctx, bx, y - 22, bw, 44, 'rgba(255,255,255,0.4)');
@@ -4530,6 +4640,31 @@ function startGame() {
       ctx.restore();
       zones.push({ x: px - 34, y: 0, w: 68, h: 54, act: () => onPress('esc') });
     }
+    // quran quick-start button beside pause — glows green while playing
+    {
+      const qx = W / 2 + 66, qy = 30;
+      ctx.save();
+      ctx.globalAlpha = QURAN.on ? 0.55 : 0.3;
+      ctx.fillStyle = QURAN.on ? '#7dffb0' : '#fff';
+      rr(ctx, qx - 27, qy - 15, 54, 30, 8); ctx.fill();
+      ctx.globalAlpha = 0.85;
+      txt(ctx, 'قرآن', qx, qy + 1, 14, '#1a0e2e', 'center', 900);
+      ctx.restore();
+      zones.push({ x: qx - 33, y: 0, w: 66, h: 54, act: () => QURAN.toggle() });
+    }
+  }
+
+  // now-playing chip: surah + reciter, drawn over every screen while
+  // the Quran plays (or a brief warning when the stream can't load)
+  function drawQuranChip() {
+    if (G.t < QURAN.errUntil) {
+      txt(ctx, 'قرآن unavailable — check connection', W / 2, 36, 12, '#ffb14d', 'center', 800, 6);
+      return;
+    }
+    if (!QURAN.on) return;
+    const s = QURAN.cur();
+    txt(ctx, 'سورة ' + s.ar + ' · ' + s.en + ' (' + s.n + '/114) · ناصر القطامي' + (QURAN.loading ? ' …' : ''),
+      W / 2, 36, 12.5, '#7dffb0', 'center', 800, 8);
   }
 
   // ---------------------------------------------- render + main loop
@@ -4547,6 +4682,7 @@ function startGame() {
       case 'play': drawSpeedLines(); drawHUD(); drawTouch(); break;
       case 'pause': drawHUD(); drawPause(); break;
     }
+    drawQuranChip();
   }
 
   let last = performance.now();
@@ -4611,7 +4747,7 @@ function startGame() {
       get G() { return G; }, get car() { return car; },
       get score() { return score; }, get lap() { return lap; },
       get TRACK() { return TRACK; }, get traffic() { return traffic; },
-      cam, props, CARS, onPress, fmtT, SND, SAVE, switchTrack, tick
+      cam, props, CARS, onPress, fmtT, SND, SAVE, switchTrack, tick, QURAN, SURAHS
     };
   }
   requestAnimationFrame(frame);
