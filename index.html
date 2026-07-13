@@ -864,6 +864,7 @@ function startGame() {
     KeyF: 'foot', KeyE: 'foot'
   };
   window.addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey) return;   // let browser shortcuts (⌘F, ⌘E…) through
     const k = KEYMAP[e.code];
     if (!k) return;
     e.preventDefault();
@@ -1791,6 +1792,7 @@ function startGame() {
       this.msgT += dt; this.killT += dt;
       this.fireCD = Math.max(0, this.fireCD - dt);
       this.enterCD = Math.max(0, this.enterCD - dt);
+      G.shake = Math.max(0, G.shake - dt * 6);   // decay (updatePlay's is bypassed for the city)
       if (this.state === 'wasted' || this.state === 'busted') {
         this.busyT -= dt;
         if (this.busyT <= 0) this.respawn();
@@ -1835,6 +1837,7 @@ function startGame() {
       const x = TRACK.cx, y = TRACK.cy + TRACK.BLOCK;
       G.onFoot = false; this.state = 'drive';
       this.hp = this.maxHp; this.wanted = 0; this.wantedT = 0; this.bustT = 0; this.hitFlash = 0;
+      G.shake = 0;
       this.cops = []; this.bullets = []; this.cars = this.cars.filter(v => !v.police);
       car.x = x; car.y = y; car.h = -Math.PI / 2;
       car.vx = 0; car.vy = 0; car.speed = 0; car.slip = 0; car.drifting = false;
@@ -1880,21 +1883,34 @@ function startGame() {
         SND.beep(300, 0.05, 'sine', 0.05);
       } else {
         const p = this.ped;
-        // nearest jackable civilian car
-        let best = null, bd = 46 * 46;
+        // nearest jackable moving civilian car, and nearest empty parked
+        // car — cop cars are NOT jackable
+        let best = null, bd = 46 * 46, park = null, pd = 52 * 52;
         for (const v of this.cars) {
-          if (v.state === 'wrecked') continue;
+          if (v.police || v.state === 'wrecked') continue;
           const dd = (v.x - p.x) ** 2 + (v.y - p.y) ** 2;
-          if (dd < bd) { bd = dd; best = v; }
+          if (v.state === 'parked') { if (dd < pd) { pd = dd; park = v; } }
+          else if (dd < bd) { bd = dd; best = v; }
         }
         const ownDd = (car.x - p.x) ** 2 + (car.y - p.y) ** 2;
-        if (best && bd <= ownDd) { this.jack(best); return; }
+        if (best && bd <= ownDd && bd <= pd) { this.jack(best); return; }   // steal a moving car
+        if (park && pd <= ownDd) { this.enterVehicle(park); return; }        // hop into an empty car (no crime)
         if (ownDd < 62 * 62) {
           G.onFoot = false; this.ped = null;
           this.setMsg('driving · F to get out');
           SND.beep(300, 0.05, 'sine', 0.05);
         } else { this.setMsg('no car nearby'); this.enterCD = 0.1; }
       }
+    },
+    // swap into an empty (abandoned/parked) car with no crime charge
+    enterVehicle(v) {
+      this.cars.push({ spec: car.spec, x: car.x, y: car.y, h: car.h, dir: { x: Math.cos(car.h), y: Math.sin(car.h) }, speed: 0, vx: 0, vy: 0, state: 'parked', lastK: 99999, braking: false });
+      const idx = this.cars.indexOf(v); if (idx >= 0) this.cars.splice(idx, 1);
+      car.spec = v.spec; SND.setCar(v.spec);
+      car.x = v.x; car.y = v.y; car.h = v.h;
+      car.vx = 0; car.vy = 0; car.speed = 0; car.rpm = 0; car.gearI = 0; car.gear = 1; car.drifting = false;
+      G.onFoot = false; this.ped = null;
+      this.setMsg('driving · F to get out'); SND.beep(300, 0.05, 'sine', 0.05);
     },
 
     // ---- pedestrians ----
@@ -2117,25 +2133,36 @@ function startGame() {
       this.setMsg('BUSTED · 逮捕'); SND.beep(420, 0.4, 'square', 0.06);
     },
     updateBullets(dt) {
-      const B = TRACK.BLOCK, tgt = this.playerPos();
+      const B = TRACK.BLOCK;
       for (let i = this.bullets.length - 1; i >= 0; i--) {
         const b = this.bullets[i];
-        b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt;
+        if (!b) break;   // hurtPlayer→wasted() can empty this.bullets mid-loop
+        b.life -= dt;
         if (b.life <= 0) { this.bullets.splice(i, 1); continue; }
-        // buildings stop bullets
-        const bd = this.bldAt(Math.floor(b.x / B), Math.floor(b.y / B));
-        if (bd && b.x > bd.x && b.x < bd.x + bd.w && b.y > bd.y && b.y < bd.y + bd.h) {
-          this.fx.push({ kind: 'spark', x: b.x, y: b.y, t: 0, life: 0.25 }); this.bullets.splice(i, 1); continue;
+        // march the bullet in small increments so a fast shot can't tunnel
+        // past a target between frames (Euler steps can exceed hit radii)
+        const dist = Math.hypot(b.vx, b.vy) * dt;
+        const steps = Math.max(1, Math.ceil(dist / 7));
+        const sx = b.vx * dt / steps, sy = b.vy * dt / steps;
+        let done = false;
+        for (let s = 0; s < steps && !done; s++) {
+          b.x += sx; b.y += sy;
+          const bd = this.bldAt(Math.floor(b.x / B), Math.floor(b.y / B));
+          if (bd && b.x > bd.x && b.x < bd.x + bd.w && b.y > bd.y && b.y < bd.y + bd.h) {
+            this.fx.push({ kind: 'spark', x: b.x, y: b.y, t: 0, life: 0.25 }); done = true; break;
+          }
+          if (b.from === 'player') {
+            for (const p of this.peds) { if (p.state === 'dead') continue; if ((p.x - b.x) ** 2 + (p.y - b.y) ** 2 < 196) { this.killPed(p); done = true; break; } }
+            if (!done) for (const cop of this.cops) { if (cop.state === 'dead') continue; if ((cop.x - b.x) ** 2 + (cop.y - b.y) ** 2 < 225) { this.hurtCop(cop, 55); done = true; break; } }
+          } else {
+            const tgt = this.playerPos(), r = G.onFoot ? 13 : 22;   // re-read: player may enter/exit mid-frame
+            if (tgt && (tgt.x - b.x) ** 2 + (tgt.y - b.y) ** 2 < r * r) { this.hurtPlayer(16); done = true; }
+          }
         }
-        let hit = false;
-        if (b.from === 'player') {
-          for (const p of this.peds) { if (p.state === 'dead') continue; if ((p.x - b.x) ** 2 + (p.y - b.y) ** 2 < 100) { this.killPed(p); hit = true; break; } }
-          if (!hit) for (const cop of this.cops) { if (cop.state === 'dead') continue; if ((cop.x - b.x) ** 2 + (cop.y - b.y) ** 2 < 121) { this.hurtCop(cop, 55); hit = true; break; } }
-        } else {
-          const r = G.onFoot ? 11 : 20;
-          if (tgt && (tgt.x - b.x) ** 2 + (tgt.y - b.y) ** 2 < r * r) { this.hurtPlayer(16); hit = true; }
+        if (done) {
+          this.fx.push({ kind: 'spark', x: b.x, y: b.y, t: 0, life: 0.3 });
+          if (this.bullets[i] === b) this.bullets.splice(i, 1);   // wasted() may have cleared it
         }
-        if (hit) { this.fx.push({ kind: 'spark', x: b.x, y: b.y, t: 0, life: 0.3 }); this.bullets.splice(i, 1); }
       }
     },
 
@@ -2166,8 +2193,9 @@ function startGame() {
         if (this.cops.length || this.cars.some(v => v.police)) { this.cops = []; this.cars = this.cars.filter(v => !v.police); }
         return;
       }
-      // spawn to match heat
-      const wantCars = Math.min(6, this.wanted + 1), wantFoot = this.wanted >= 2 ? Math.min(6, this.wanted) : 0;
+      // spawn to match heat — foot cops from 1 star so there's always a
+      // pursuit you can shake (cop peds run 132 < your on-foot 168)
+      const wantCars = Math.min(6, this.wanted + 1), wantFoot = Math.min(6, this.wanted);
       const copCars = this.cars.filter(v => v.police).length;
       if (copCars < wantCars && Math.random() < dt * 1.8) this.cars.push(this.makeCopCar(tgt));
       const liveFoot = this.cops.filter(c => c.state !== 'dead').length;
@@ -2177,7 +2205,7 @@ function startGame() {
       for (const v of this.cars) {
         if (!v.police) continue;
         const dx = tgt.x - v.x, dy = tgt.y - v.y, dist = Math.hypot(dx, dy) || 1;
-        if (dist < 560) seen = true;
+        if (dist < 300) seen = true;   // only *close* cops pin the heat → distance cools it
         v.h += angNorm(Math.atan2(dy, dx) - v.h) * clamp(dt * 3.5, 0, 1);
         v.speed = lerp(v.speed, dist > 50 ? 320 : 0, clamp(dt * 3, 0, 1));
         v.x += Math.cos(v.h) * v.speed * dt; v.y += Math.sin(v.h) * v.speed * dt;
@@ -2189,7 +2217,7 @@ function startGame() {
         const cop = this.cops[i];
         if (cop.state === 'dead') { cop.deadT += dt; if (cop.deadT > 6.5) this.cops.splice(i, 1); continue; }
         const dx = tgt.x - cop.x, dy = tgt.y - cop.y, dist = Math.hypot(dx, dy) || 1;
-        if (dist < 520) seen = true;
+        if (dist < 300) seen = true;
         cop.h = Math.atan2(dy, dx); cop.walk += dt * 15;
         const spd = dist > 74 ? 132 : 0;
         cop.x += dx / dist * spd * dt; cop.y += dy / dist * spd * dt;
@@ -4936,6 +4964,10 @@ function startGame() {
       g1.addColorStop(0, 'rgba(255,150,60,0.14)');
       g1.addColorStop(0.42, 'rgba(200,110,70,0.05)');
       g1.addColorStop(1, 'rgba(25,12,40,0.26)');
+    } else if (TRACK.style === 'city') {
+      g1.addColorStop(0, 'rgba(120,150,210,0.12)');   // cool neon night
+      g1.addColorStop(0.45, 'rgba(90,90,150,0.04)');
+      g1.addColorStop(1, 'rgba(10,10,26,0.30)');
     } else {
       g1.addColorStop(0, 'rgba(255,118,168,0.15)');
       g1.addColorStop(0.42, 'rgba(255,150,92,0.05)');
