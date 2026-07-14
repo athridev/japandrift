@@ -878,6 +878,15 @@ function startGame() {
     if (!k) return;
     e.preventDefault();
     wakeGamepads();
+    // While the Quran panel is up the game must not latch driving keys —
+    // otherwise scrolling with ↓ also brakes, and closing while a key is
+    // held resumes the race with the throttle already pinned.
+    if (QURAN.open) {
+      const repeatable = (k === 'up' || k === 'down');   // hold to scroll
+      if (repeatable || !keys[k]) onPress(k);
+      SND.init();
+      return;
+    }
     if (!keys[k]) onPress(k);
     keys[k] = true;
     SND.init();
@@ -911,10 +920,15 @@ function startGame() {
   document.addEventListener('selectstart', e => e.preventDefault());
 
   // stuck-key + tab-away safety: drop all inputs and shelve the race
-  function focusLost() {
+  // release every held key / finger / stick — used on blur and whenever the
+  // Quran panel opens or closes, so nothing stays latched across the change
+  function dropHeldInputs() {
     for (const k in keys) keys[k] = false;
     ptrs.clear();
     joy = null; qDrag = null;
+  }
+  function focusLost() {
+    dropHeldInputs();
     if (G.state === 'play') G.state = 'pause';
     else if (G.state === 'count') G.state = 'mode';
   }
@@ -976,7 +990,9 @@ function startGame() {
   window.addEventListener('wheel', e => {
     if (!QURAN.open) return;
     e.preventDefault();
-    QURAN.scT = clamp(QURAN.scT + e.deltaY, 0, QURAN.maxScroll());
+    // deltaMode: 0 = px, 1 = lines, 2 = pages (Firefox reports lines)
+    const unit = e.deltaMode === 1 ? QP.rowH : e.deltaMode === 2 ? QP.listH : 1;
+    QURAN.scT = clamp(QURAN.scT + e.deltaY * unit, 0, QURAN.maxScroll());
   }, { passive: false });
 
   window.addEventListener('pointerdown', e => {
@@ -998,6 +1014,9 @@ function startGame() {
       if (e.clientX >= z.x && e.clientX <= z.x + z.w &&
           e.clientY >= z.y && e.clientY <= z.y + z.h) { z.act(); hitZone = true; break; }
     }
+    // a tap that fired a zone must not ALSO wedge a nearby button on
+    // (the FIRE circle and the get-in/out zone sit close together)
+    if (hitZone) p.btn = null;
     // left thumb on empty space in the city → spawn the thumbstick there
     if (!hitZone && !p.btn && !joy && joyEnabled() && p.x < W * 0.58) {
       p.joy = true;
@@ -1015,9 +1034,12 @@ function startGame() {
   });
   const ptrEnd = e => {
     SND.init();   // iOS Safari may only unlock audio on a release gesture
-    if (QURAN.open) { qPanelUp(e); return; }
+    // ALWAYS release the pointer first. Returning into the panel handler
+    // before this leaked `joy` (thumbstick stuck on with no finger down)
+    // and left sticky p.btn entries in `ptrs` (throttle wedged open).
     if (joy && joy.id === e.pointerId) joy = null;
     ptrs.delete(e.pointerId);
+    if (QURAN.open) { qPanelUp(e); return; }
     if (swipe && swipe.id === e.pointerId && G.state === 'garage') {
       const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
       if (performance.now() - swipe.t < 600 && Math.abs(dx) > 48 && Math.abs(dy) < 80)
@@ -1063,7 +1085,14 @@ function startGame() {
     }
   }
   function touchLayoutFresh() {
-    if (!touchBtns.length || touchLW !== W || touchLH !== H || touchLMode !== touchMode()) layoutTouch();
+    if (!touchBtns.length || touchLW !== W || touchLH !== H || touchLMode !== touchMode()) {
+      const swapped = touchLMode !== touchMode();
+      layoutTouch();
+      // the button set just changed under the player's fingers (e.g. they
+      // got out of the car): a sticky p.btn now names a button that no
+      // longer exists there, so drop the assignments — lift and re-press.
+      if (swapped) for (const p of ptrs.values()) p.btn = null;
+    }
   }
 
   // ---- virtual thumbstick (city only) ----
@@ -1097,7 +1126,7 @@ function startGame() {
     const st = { up: false, down: false, left: false, right: false, eb: false, ax: 0, ay: 0 };
     if (!touchControlsEnabled()) return st;
     touchLayoutFresh();
-    const v = joyVec();
+    const v = joyEnabled() ? joyVec() : { x: 0, y: 0, m: 0 };  // never leaks to the circuits
     st.ax = v.x; st.ay = v.y;
     for (const p of ptrs.values()) {
       if (p.joy) continue;                    // the stick finger is not a button
@@ -1816,18 +1845,23 @@ function startGame() {
     },
 
     // ---- browser panel (the real UI) ----
-    open: false, sc: 0, scT: 0, resumeAfter: false,
+    open: false, sc: 0, scT: 0, resumeAfter: false, prevState: 'play',
     openPanel() {
       this.open = true;
-      // don't let the car keep driving while you're picking a surah
-      if (G.state === 'play') { G.state = 'pause'; this.resumeAfter = true; }
+      // freeze the race behind the panel — 'count' is live too (the clock
+      // keeps ticking and flips into 'play'), so it has to pause as well
+      if (G.state === 'play' || G.state === 'count') {
+        this.prevState = G.state; G.state = 'pause'; this.resumeAfter = true;
+      }
+      dropHeldInputs();          // nothing may stay latched under the panel
       this.scT = this.sc = this.rowScrollFor(this.idx);
       SND.init();
     },
     closePanel() {
       this.open = false;
-      if (this.resumeAfter && G.state === 'pause') G.state = 'play';
+      if (this.resumeAfter && G.state === 'pause') G.state = this.prevState || 'play';
       this.resumeAfter = false;
+      dropHeldInputs();          // never resume with a key/finger still latched
     },
     togglePanel() { this.open ? this.closePanel() : this.openPanel(); },
     rowScrollFor(i) { return Math.max(0, i * QP.rowH - QP.listH * 0.42); },
@@ -4569,7 +4603,10 @@ function startGame() {
     g.restore();
   }
   function rr(g, x, y, w, h, r) {
-    r = Math.min(r, w / 2, h / 2);
+    // a zero/negative box would give arcTo a negative radius, which throws
+    // IndexSizeError and kills the rAF loop — draw nothing instead
+    if (!(w > 0) || !(h > 0)) { g.beginPath(); return; }
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
     g.beginPath();
     g.moveTo(x + r, y);
     g.arcTo(x + w, y, x + w, y + h, r);
@@ -5695,7 +5732,7 @@ function startGame() {
       ? [['tap here → resume', () => onPress('enter')],
          ['respawn リスポーン', () => onPress('reset')],
          [sndLbl, () => onPress('mute')],
-         [qLbl + '  ▸ open player', () => QURAN.openPanel()],
+         ['قرآن ▸ open player', () => QURAN.openPanel()],
          ['title タイトル', () => onPress('back')]]
       : pad.connected
       ? [['A / START resume · Y respawn', null],
@@ -5704,7 +5741,7 @@ function startGame() {
          ['B title', null]]
       : [['ENTER resume · R respawn', null],
          [sndLbl + ' · M', null],
-         [qLbl + ' · Q play/pause · L open player', () => QURAN.openPanel()],
+         ['قرآن · Q play · L open player', () => QURAN.openPanel()],
          ['BACKSPACE title', null]];
     let y = H * 0.48;
     for (const [label, act, kind] of items) {
@@ -6031,11 +6068,12 @@ function startGame() {
         ctx.restore();
       }
     }
-    // NEO CITY: get in / out button, above the right-hand cluster
+    // NEO CITY: get in / out button. On foot it stacks ABOVE the big FIRE
+    // circle (they used to overlap, so one tap did both).
     if (TRACK.city) {
       const r = Math.min(W, H) * 0.075, pad = r * 0.5;
-      const fx = G.onFoot ? W - pad - r * 3.5 : W - pad - r * 3.7;
-      const fy = G.onFoot ? H - pad - r * 1.4 : H - pad - r * 5.05;
+      const fx = G.onFoot ? W - pad - r * 1.15 : W - pad - r * 3.7;
+      const fy = G.onFoot ? H - pad - r * 4.1 : H - pad - r * 5.05;
       const fr = r * 0.95;
       ctx.save();
       ctx.globalAlpha = 0.34; ctx.fillStyle = '#7dffb0';
@@ -6087,20 +6125,23 @@ function startGame() {
     ctx.font = FONT(800, 12.5);
     const tw = ctx.measureText(label).width;
     const bw = Math.min(W - 40, tw + 34), bx = W / 2 - bw / 2;
-    // tappable now-playing chip → opens the full player
+    // drop below the pause / قرآن chips when the touch HUD is on screen,
+    // otherwise the card would sit right on top of them
+    const stacked = touchControlsEnabled() && (G.state === 'play' || G.state === 'count');
+    const cy0 = stacked ? 56 : 22;
     ctx.save();
-    rr(ctx, bx, 22, bw, 26, 13);
+    rr(ctx, bx, cy0, bw, 26, 13);
     ctx.fillStyle = 'rgba(10,26,18,0.72)'; ctx.fill();
     ctx.strokeStyle = 'rgba(125,255,176,0.5)'; ctx.lineWidth = 1; ctx.stroke();
     ctx.restore();
-    txt(ctx, label, W / 2, 36, 12.5, '#7dffb0', 'center', 800, 6);
+    txt(ctx, label, W / 2, cy0 + 14, 12.5, '#7dffb0', 'center', 800, 6);
     // a thin progress line under the chip
     const p = QURAN.pos();
     if (p.dur > 0) {
       ctx.fillStyle = 'rgba(125,255,176,0.65)';
-      ctx.fillRect(bx + 6, 46, (bw - 12) * p.f, 2);
+      ctx.fillRect(bx + 6, cy0 + 24, (bw - 12) * p.f, 2);
     }
-    zones.push({ x: bx, y: 20, w: bw, h: 32, act: () => QURAN.openPanel() });
+    zones.push({ x: bx, y: cy0 - 2, w: bw, h: 32, act: () => QURAN.openPanel() });
   }
 
   // ---------------------------------------------- Quran player panel
@@ -6111,13 +6152,16 @@ function startGame() {
   };
   function drawQuranPanel() {
     const Q = QURAN;
-    // responsive sheet: near-fullscreen on a phone, a centred card on desktop
+    // responsive sheet: near-fullscreen on a phone, a centred card on desktop.
+    // A landscape phone is only ~375 px tall, so a compact variant shrinks the
+    // header/transport — otherwise the list height goes to zero (or negative).
     const mobile = W < 620;
-    const pw = mobile ? Math.min(W - 20, 460) : 440;
-    const ph = mobile ? Math.min(H - 24, 720) : Math.min(H - 60, 620);
+    const pw = mobile ? Math.min(W - 20, 460) : Math.min(440, W - 40);
+    const ph = mobile ? Math.min(H - 24, 720) : Math.min(H - 40, 620);
     const px = (W - pw) / 2, py = (H - ph) / 2;
+    const compact = ph < 470;
     QP.x = px; QP.y = py; QP.w = pw; QP.h = ph;
-    QP.rowH = mobile ? 52 : 46;              // fat rows for thumbs
+    QP.rowH = compact ? 38 : mobile ? 52 : 46;      // fat rows for thumbs
     QP.rows = []; QP.btns = []; QP.bar = null;
 
     // backdrop (tap outside to close)
@@ -6132,21 +6176,22 @@ function startGame() {
     ctx.restore();
 
     // ---- header ----
-    txt(ctx, 'القرآن الكريم', px + pw / 2, py + 30, 21, '#7dffb0', 'center', 900, 10);
-    txt(ctx, 'ناصر القطامي · Nasser Al Qatami', px + pw / 2, py + 52, 12, 'rgba(255,255,255,0.6)', 'center', 700);
+    txt(ctx, 'القرآن الكريم', px + pw / 2, py + (compact ? 22 : 30), compact ? 17 : 21, '#7dffb0', 'center', 900, 10);
+    txt(ctx, 'ناصر القطامي · Nasser Al Qatami', px + pw / 2, py + (compact ? 40 : 52),
+      compact ? 10 : 12, 'rgba(255,255,255,0.6)', 'center', 700);
     // close ×
-    const cxb = px + pw - 26, cyb = py + 26;
+    const cxb = px + pw - 26, cyb = py + (compact ? 22 : 26);
     txt(ctx, '×', cxb, cyb, 26, 'rgba(255,255,255,0.75)', 'center', 900);
     QP.btns.push({ x: cxb - 22, y: cyb - 22, w: 44, h: 44, act: () => Q.closePanel() });
 
     // ---- now playing + seek ----
     const s = Q.cur(), p = Q.pos();
-    const nyY = py + 82;
-    txt(ctx, s.ar + ' · ' + s.en, px + pw / 2, nyY, 16, '#fff', 'center', 900);
+    const nyY = py + (compact ? 62 : 82);
+    txt(ctx, s.ar + ' · ' + s.en, px + pw / 2, nyY, compact ? 14 : 16, '#fff', 'center', 900);
     txt(ctx, 'سورة ' + s.n + ' / 114' + (Q.loading ? ' · loading…' : ''),
-      px + pw / 2, nyY + 20, 11.5, 'rgba(255,255,255,0.55)', 'center', 700);
+      px + pw / 2, nyY + (compact ? 16 : 20), 11.5, 'rgba(255,255,255,0.55)', 'center', 700);
     // seek bar
-    const bx = px + 26, bw = pw - 52, by = nyY + 40;
+    const bx = px + 26, bw = pw - 52, by = nyY + (compact ? 30 : 40);
     ctx.fillStyle = 'rgba(255,255,255,0.14)'; rr(ctx, bx, by, bw, 6, 3); ctx.fill();
     if (p.dur > 0) {
       ctx.fillStyle = '#7dffb0'; rr(ctx, bx, by, bw * p.f, 6, 3); ctx.fill();
@@ -6157,7 +6202,7 @@ function startGame() {
     txt(ctx, fmtSec(p.dur), bx + bw, by + 22, 11, 'rgba(255,255,255,0.6)', 'right', 700);
 
     // ---- transport ----
-    const tY = by + 56, R = mobile ? 30 : 27;
+    const tY = by + (compact ? 38 : 56), R = compact ? 21 : mobile ? 30 : 27;
     const mk = (cx2, r2, label, fs, act, accent) => {
       ctx.save();
       ctx.globalAlpha = accent ? 0.95 : 0.5;
@@ -6172,9 +6217,10 @@ function startGame() {
     mk(px + pw / 2 + R * 2.6, R * 0.78, '▶▶', 13, () => Q.next(), false);
 
     // ---- surah list (scrollable) ----
-    const lY = tY + R + 22;
-    const lH = py + ph - lY - 14;
+    const lY = tY + R + (compact ? 12 : 22);
+    const lH = Math.max(0, py + ph - lY - 14);   // never negative (rr would throw)
     QP.listY = lY; QP.listH = lH;
+    if (lH < 24) return;                          // nothing left to draw into
     Q.sc = lerp(Q.sc, clamp(Q.scT, 0, Q.maxScroll()), 0.28);
     ctx.save();
     rr(ctx, px + 12, lY, pw - 24, lH, 12); ctx.clip();
