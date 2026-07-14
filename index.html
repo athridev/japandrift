@@ -870,7 +870,7 @@ function startGame() {
     Enter: 'enter', Escape: 'esc', KeyP: 'esc',
     KeyR: 'reset', Backspace: 'back', KeyM: 'mute',
     KeyQ: 'quran', BracketLeft: 'qprev', BracketRight: 'qnext',
-    KeyF: 'foot', KeyE: 'foot'
+    KeyL: 'qpanel', KeyF: 'foot', KeyE: 'foot'
   };
   window.addEventListener('keydown', e => {
     if (e.metaKey || e.ctrlKey) return;   // let browser shortcuts (⌘F, ⌘E…) through
@@ -914,6 +914,7 @@ function startGame() {
   function focusLost() {
     for (const k in keys) keys[k] = false;
     ptrs.clear();
+    joy = null; qDrag = null;
     if (G.state === 'play') G.state = 'pause';
     else if (G.state === 'count') G.state = 'mode';
   }
@@ -931,9 +932,58 @@ function startGame() {
   function ptPos(e) {
     return { x: e.clientX, y: e.clientY };
   }
+  // ---- Quran panel input: drag to scroll, tap to select, drag the seek bar.
+  // Handled outside the `zones` system because a list needs tap-vs-drag
+  // discrimination (a zone fires on pointerdown, which would hijack scrolls).
+  let qDrag = null;
+  function qPanelDown(e) {
+    const x = e.clientX, y = e.clientY;
+    if (QP.bar && x >= QP.bar.x && x <= QP.bar.x + QP.bar.w && y >= QP.bar.y && y <= QP.bar.y + QP.bar.h) {
+      qDrag = { kind: 'seek', id: e.pointerId };
+      QURAN.seek((x - QP.bar.bx) / QP.bar.bw);
+      return;
+    }
+    for (const b of QP.btns) {
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { b.act(); return; }
+    }
+    const inList = y >= QP.listY && y <= QP.listY + QP.listH &&
+      x >= QP.x && x <= QP.x + QP.w;
+    if (inList) {
+      qDrag = { kind: 'list', id: e.pointerId, y0: y, sc0: QURAN.sc, moved: 0 };
+      return;
+    }
+    // tapped outside the card → close
+    if (x < QP.x || x > QP.x + QP.w || y < QP.y || y > QP.y + QP.h) QURAN.closePanel();
+  }
+  function qPanelMove(e) {
+    if (!qDrag || qDrag.id !== e.pointerId) return;
+    if (qDrag.kind === 'seek') { QURAN.seek((e.clientX - QP.bar.bx) / QP.bar.bw); return; }
+    const dy = e.clientY - qDrag.y0;
+    qDrag.moved = Math.max(qDrag.moved, Math.abs(dy));
+    QURAN.scT = clamp(qDrag.sc0 - dy, 0, QURAN.maxScroll());
+    QURAN.sc = QURAN.scT;                     // 1:1 with the finger
+  }
+  function qPanelUp(e) {
+    if (!qDrag || qDrag.id !== e.pointerId) { qDrag = null; return; }
+    if (qDrag.kind === 'list' && qDrag.moved < 9) {
+      const x = e.clientX, y = e.clientY;
+      for (const r of QP.rows) {
+        if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) { QURAN.goTo(r.i, true); break; }
+      }
+    }
+    qDrag = null;
+  }
+  window.addEventListener('wheel', e => {
+    if (!QURAN.open) return;
+    e.preventDefault();
+    QURAN.scT = clamp(QURAN.scT + e.deltaY, 0, QURAN.maxScroll());
+  }, { passive: false });
+
   window.addEventListener('pointerdown', e => {
     e.preventDefault();
     if (e.pointerType === 'touch') G.touch = true;
+    SND.init();
+    if (QURAN.open) { qPanelDown(e); return; }
     const p = ptPos(e);
     p.t = e.pointerType; p.ts = performance.now();
     // sticky control assignment: the button you land on is yours until
@@ -948,16 +998,25 @@ function startGame() {
       if (e.clientX >= z.x && e.clientX <= z.x + z.w &&
           e.clientY >= z.y && e.clientY <= z.y + z.h) { z.act(); hitZone = true; break; }
     }
+    // left thumb on empty space in the city → spawn the thumbstick there
+    if (!hitZone && !p.btn && !joy && joyEnabled() && p.x < W * 0.58) {
+      p.joy = true;
+      joy = { id: e.pointerId, ox: p.x, oy: p.y, x: p.x, y: p.y };
+    }
     swipe = (!hitZone && G.state === 'garage')
       ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() }
       : null;
   }, { passive: false });
   window.addEventListener('pointermove', e => {
+    if (QURAN.open) { qPanelMove(e); return; }
     const p = ptrs.get(e.pointerId);
     if (p) { p.x = e.clientX; p.y = e.clientY; }
+    if (joy && joy.id === e.pointerId) { joy.x = e.clientX; joy.y = e.clientY; }
   });
   const ptrEnd = e => {
     SND.init();   // iOS Safari may only unlock audio on a release gesture
+    if (QURAN.open) { qPanelUp(e); return; }
+    if (joy && joy.id === e.pointerId) joy = null;
     ptrs.delete(e.pointerId);
     if (swipe && swipe.id === e.pointerId && G.state === 'garage') {
       const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
@@ -971,20 +1030,58 @@ function startGame() {
 
   // on-screen touch buttons (only shown once a touch is seen, then hidden
   // automatically while a controller is connected).
-  let touchBtns = [], touchLW = 0, touchLH = 0;
+  let touchBtns = [], touchLW = 0, touchLH = 0, touchLMode = '';
+  // NEO CITY needs 8-way walking and one-handed driving, which a ◀/▶ pair
+  // can't give you — the city gets an analog thumbstick on the left and a
+  // context cluster (drive vs on-foot) on the right. Circuits keep the
+  // proven ◀/▶ + GAS layout.
+  function touchMode() {
+    if (!TRACK.city) return 'race';
+    return G.onFoot ? 'foot' : 'drive';
+  }
   function layoutTouch() {
     const r = Math.min(W, H) * 0.075, pad = r * 0.5;
-    touchLW = W; touchLH = H;
-    touchBtns = [
-      { id: 'left',  x: pad + r,             y: H - pad - r, r, label: '◀' },
-      { id: 'right', x: pad + r * 3.3,       y: H - pad - r, r, label: '▶' },
-      { id: 'eb',    x: W - pad - r * 3.6,   y: H - pad - r * 2.9, r: r * 0.9, label: 'ドリ' },
-      { id: 'down',  x: W - pad - r * 3.6,   y: H - pad - r, r: r * 0.9, label: 'ブ' },
-      { id: 'up',    x: W - pad - r,         y: H - pad - r, r: r * 1.15, label: 'GAS' }
-    ];
+    touchLW = W; touchLH = H; touchLMode = touchMode();
+    if (touchLMode === 'race') {
+      touchBtns = [
+        { id: 'left',  x: pad + r,           y: H - pad - r, r, label: '◀' },
+        { id: 'right', x: pad + r * 3.3,     y: H - pad - r, r, label: '▶' },
+        { id: 'eb',    x: W - pad - r * 3.6, y: H - pad - r * 2.9, r: r * 0.9, label: 'ドリ' },
+        { id: 'down',  x: W - pad - r * 3.6, y: H - pad - r, r: r * 0.9, label: 'ブ' },
+        { id: 'up',    x: W - pad - r,       y: H - pad - r, r: r * 1.15, label: 'GAS' }
+      ];
+    } else if (touchLMode === 'drive') {
+      touchBtns = [
+        { id: 'eb',   x: W - pad - r * 3.7, y: H - pad - r * 2.95, r: r * 0.9,  label: 'ハンド' },
+        { id: 'down', x: W - pad - r * 3.7, y: H - pad - r,        r: r * 0.95, label: 'ブレーキ' },
+        { id: 'up',   x: W - pad - r,       y: H - pad - r,        r: r * 1.25, label: 'GAS' }
+      ];
+    } else {   // on foot: one big FIRE button, movement on the stick
+      touchBtns = [
+        { id: 'eb', x: W - pad - r * 1.15, y: H - pad - r * 1.15, r: r * 1.35, label: '撃つ' }
+      ];
+    }
   }
   function touchLayoutFresh() {
-    if (!touchBtns.length || touchLW !== W || touchLH !== H) layoutTouch();
+    if (!touchBtns.length || touchLW !== W || touchLH !== H || touchLMode !== touchMode()) layoutTouch();
+  }
+
+  // ---- virtual thumbstick (city only) ----
+  // Floating origin: it appears wherever your left thumb lands, so you
+  // never have to look for it. Returns an analog vector.
+  let joy = null;
+  function joyEnabled() {
+    return touchControlsEnabled() && TRACK.city && (G.state === 'play' || G.state === 'count');
+  }
+  function joyRadius() { return Math.min(W, H) * 0.115; }
+  function joyVec() {
+    if (!joy) return { x: 0, y: 0, m: 0 };
+    const R = joyRadius();
+    let dx = joy.x - joy.ox, dy = joy.y - joy.oy;
+    const d = Math.hypot(dx, dy) || 1;
+    const m = clamp(d / R, 0, 1);
+    if (m < 0.16) return { x: 0, y: 0, m: 0 };     // deadzone
+    return { x: (dx / d) * m, y: (dy / d) * m, m };
   }
   // nearest button whose (generous) hit circle contains the point
   function touchBtnAt(x, y) {
@@ -997,10 +1094,13 @@ function startGame() {
     return best;
   }
   function touchState() {
-    const st = { up: false, down: false, left: false, right: false, eb: false };
+    const st = { up: false, down: false, left: false, right: false, eb: false, ax: 0, ay: 0 };
     if (!touchControlsEnabled()) return st;
     touchLayoutFresh();
+    const v = joyVec();
+    st.ax = v.x; st.ay = v.y;
     for (const p of ptrs.values()) {
+      if (p.joy) continue;                    // the stick finger is not a button
       if (p.btn === 'left' || p.btn === 'right') {
         // steering pair: slide between ◀ and ▶ without lifting
         const L = touchBtns[0], R = touchBtns[1];
@@ -1695,9 +1795,46 @@ function startGame() {
       SND.applyMaster();
     },
     toggle() { this.on ? this.stop() : this.start(); },
-    next() { this.idx = (this.idx + 1) % 114; SAVE.set('quranIdx', this.idx); if (this.on) this.start(); },
-    prev() { this.idx = (this.idx + 113) % 114; SAVE.set('quranIdx', this.idx); if (this.on) this.start(); }
+    next() { this.goTo((this.idx + 1) % 114, this.on); },
+    prev() { this.goTo((this.idx + 113) % 114, this.on); },
+    // jump to a surah; `play` forces playback (used by the list UI)
+    goTo(i, play) {
+      this.idx = clamp(i | 0, 0, 113);
+      SAVE.set('quranIdx', this.idx);
+      if (play || this.on) this.start(); else if (this.audio) this.audio.src = '';
+    },
+    // ---- playback position (for the seek bar) ----
+    pos() {
+      const a = this.audio;
+      if (!a || !isFinite(a.duration) || a.duration <= 0) return { cur: 0, dur: 0, f: 0 };
+      return { cur: a.currentTime, dur: a.duration, f: clamp(a.currentTime / a.duration, 0, 1) };
+    },
+    seek(f) {
+      const a = this.audio;
+      if (!a || !isFinite(a.duration) || a.duration <= 0) return;
+      try { a.currentTime = clamp(f, 0, 0.999) * a.duration; } catch (e) {}
+    },
+
+    // ---- browser panel (the real UI) ----
+    open: false, sc: 0, scT: 0, resumeAfter: false,
+    openPanel() {
+      this.open = true;
+      // don't let the car keep driving while you're picking a surah
+      if (G.state === 'play') { G.state = 'pause'; this.resumeAfter = true; }
+      this.scT = this.sc = this.rowScrollFor(this.idx);
+      SND.init();
+    },
+    closePanel() {
+      this.open = false;
+      if (this.resumeAfter && G.state === 'pause') G.state = 'play';
+      this.resumeAfter = false;
+    },
+    togglePanel() { this.open ? this.closePanel() : this.openPanel(); },
+    rowScrollFor(i) { return Math.max(0, i * QP.rowH - QP.listH * 0.42); },
+    maxScroll() { return Math.max(0, 114 * QP.rowH - QP.listH); }
   };
+  // panel geometry, recomputed each frame it's drawn
+  const QP = { x: 0, y: 0, w: 0, h: 0, rowH: 46, listY: 0, listH: 0, rows: [], btns: [], bar: null };
 
   // ---------------------------------------------- NEO CITY sandbox
   // All open-world state + systems live here. Everything is stylized,
@@ -1863,12 +2000,19 @@ function startGame() {
       const ts = touchState();
       const sx = ((keys.left || ts.left) ? -1 : 0) + ((keys.right || ts.right) ? 1 : 0);
       const sy = ((keys.up || ts.up) ? -1 : 0) + ((keys.down || ts.down) ? 1 : 0);
+      // the thumbstick wins when it's engaged, and it's ANALOG — you can
+      // creep or sprint by how far you push it
       let tvx = sx, tvy = sy;
+      if (Math.hypot(ts.ax || 0, ts.ay || 0) > 0.01) { tvx = ts.ax; tvy = ts.ay; }
       const l = Math.hypot(tvx, tvy);
-      if (l > 0) { tvx /= l; tvy /= l; p.h = Math.atan2(tvy, tvx); p.walk += dt * 12; }
+      let ux = 0, uy = 0, mag = 0;
+      if (l > 0) {
+        ux = tvx / l; uy = tvy / l; mag = clamp(l, 0, 1);
+        p.h = Math.atan2(uy, ux); p.walk += dt * 12 * Math.max(0.4, mag);
+      }
       const SPD = 168;
-      p.vx = lerp(p.vx, tvx * SPD, clamp(dt * 11, 0, 1));
-      p.vy = lerp(p.vy, tvy * SPD, clamp(dt * 11, 0, 1));
+      p.vx = lerp(p.vx, ux * SPD * mag, clamp(dt * 11, 0, 1));
+      p.vy = lerp(p.vy, uy * SPD * mag, clamp(dt * 11, 0, 1));
       p.x = clamp(p.x + p.vx * dt, 18, TRACK.worldW - 18);
       p.y = clamp(p.y + p.vy * dt, 18, TRACK.worldH - 18);
       this.resolveEnt(p, 9);
@@ -4060,8 +4204,21 @@ function startGame() {
   }
 
   function onPress(k) {
+    // the Quran panel swallows input while it's open
+    if (QURAN.open) {
+      const step = QP.rowH * 2, mx = QURAN.maxScroll();
+      if (k === 'esc' || k === 'back' || k === 'qpanel') { QURAN.closePanel(); return; }
+      if (k === 'up') { QURAN.scT = clamp(QURAN.scT - step, 0, mx); return; }
+      if (k === 'down') { QURAN.scT = clamp(QURAN.scT + step, 0, mx); return; }
+      if (k === 'left' || k === 'qprev') { QURAN.prev(); QURAN.scT = QURAN.rowScrollFor(QURAN.idx); return; }
+      if (k === 'right' || k === 'qnext') { QURAN.next(); QURAN.scT = QURAN.rowScrollFor(QURAN.idx); return; }
+      if (k === 'enter' || k === 'quran') { QURAN.toggle(); return; }
+      if (k === 'mute') { SND.toggleMute(); return; }
+      return;
+    }
     if (k === 'mute') { SND.toggleMute(); return; }
-    if (k === 'quran') { QURAN.toggle(); return; }
+    if (k === 'quran') { QURAN.toggle(); return; }      // quick start / stop
+    if (k === 'qpanel') { QURAN.togglePanel(); return; } // full player
     if (k === 'qprev') { QURAN.prev(); return; }
     if (k === 'qnext') { QURAN.next(); return; }
     switch (G.state) {
@@ -4113,7 +4270,9 @@ function startGame() {
     const c = car, P = c.spec.phys;
     const ts = touchState();
     const gp = padState();
-    const st = clamp(((keys.left || ts.left) ? -1 : 0) + ((keys.right || ts.right) ? 1 : 0) + gp.st, -1, 1);
+    // ts.ax is the city thumbstick (analog); it merges with keys + gamepad
+    const st = clamp(((keys.left || ts.left) ? -1 : 0) + ((keys.right || ts.right) ? 1 : 0)
+      + gp.st + (ts.ax || 0), -1, 1);
     const thr = Math.max((keys.up || ts.up) ? 1 : 0, gp.thr);      // analog 0..1
     const brk = Math.max((keys.down || ts.down) ? 1 : 0, gp.brk);  // analog 0..1
     const eb = !!(keys.eb || ts.eb || gp.eb);
@@ -5390,33 +5549,49 @@ function startGame() {
     ctx.fillStyle = hpf > 0.5 ? '#7dffb0' : hpf > 0.25 ? '#ffd166' : '#ff5a5a';
     if (hpf > 0.01) { rr(ctx, 22, 72, 172 * hpf, 10, 5); ctx.fill(); }
     // weapon (text, not an emoji — the emoji rendered as a tofu box)
+    const touching = touchControlsEnabled();
     ctx.font = FONT(800, 12);
     ctx.fillStyle = onFoot ? '#ffd166' : 'rgba(255,255,255,0.45)';
-    ctx.fillText(onFoot ? 'PISTOL 拳銃 · SPACE to fire' : 'F to get out', 22, 100);
+    ctx.fillText(onFoot ? (touching ? 'PISTOL 拳銃 · 撃つ' : 'PISTOL 拳銃 · SPACE')
+      : (touching ? '降りる to get out' : 'F to get out'), 22, 100);
     ctx.restore();
 
-    // ---- WANTED stars (top-right, left of the minimap) ----
+    // ---- WANTED stars ----
+    // On a phone the top-right is taken by the minimap and the pause/قرآن
+    // chips, so the stars live under the health bar instead of colliding.
+    const narrow = W < 620;
     ctx.save();
-    txt(ctx, '指名手配 WANTED', W - 22, 26, 12, 'rgba(255,255,255,0.7)', 'right', 800);
     const flash = c.wanted > 0 && Math.floor(G.t * 6) % 2 === 0;
-    for (let i = 0; i < 5; i++) {
-      const on = i >= 5 - c.wanted;   // fill from the left
-      txt(ctx, '★', W - 30 - i * 26, 54, 22,
-        on ? (flash ? '#ffe27a' : '#ffb14d') : 'rgba(255,255,255,0.16)', 'center', 900, on ? 10 : 0);
+    if (narrow) {
+      txt(ctx, '指名手配', 22, 124, 10, 'rgba(255,255,255,0.6)', 'left', 800);
+      for (let i = 0; i < 5; i++) {
+        const on = i < c.wanted;
+        txt(ctx, '★', 72 + i * 20, 124, 17,
+          on ? (flash ? '#ffe27a' : '#ffb14d') : 'rgba(255,255,255,0.16)', 'center', 900, on ? 8 : 0);
+      }
+    } else {
+      txt(ctx, '指名手配 WANTED', W - 22, 26, 12, 'rgba(255,255,255,0.7)', 'right', 800);
+      for (let i = 0; i < 5; i++) {
+        const on = i >= 5 - c.wanted;   // fill from the left
+        txt(ctx, '★', W - 30 - i * 26, 54, 22,
+          on ? (flash ? '#ffe27a' : '#ffb14d') : 'rgba(255,255,255,0.16)', 'center', 900, on ? 10 : 0);
+      }
     }
     ctx.restore();
 
-    // ---- transient toast: centred, well clear of the minimap ----
+    // ---- transient toast ----
+    // On a phone the left cluster reaches the vertical middle of the top
+    // bar, so the toast drops below it instead of striking through it.
+    const toastY = narrow ? 158 : H * 0.11;
     if (c.msgT < 3 && c.state === 'drive') {
       const a = c.msgT < 2.4 ? 1 : clamp((3 - c.msgT) / 0.6, 0, 1);
       ctx.save(); ctx.globalAlpha = a;
-      const tw = ctx.measureText(c.msg).width;
-      txt(ctx, c.msg, W / 2, H * 0.11, 15, '#9fe8ff', 'center', 900, 8);
+      txt(ctx, c.msg, W / 2, toastY, narrow ? 13 : 15, '#9fe8ff', 'center', 900, 8);
       ctx.restore();
     }
     // kill feed under the toast
     if (c.killT < 1 && c.state === 'drive')
-      txt(ctx, c.killMsg, W / 2, H * 0.11 + 24, 14, '#ff8a8a', 'center', 900, 8);
+      txt(ctx, c.killMsg, W / 2, toastY + 22, 14, '#ff8a8a', 'center', 900, 8);
 
     // ---- WASTED / BUSTED: a real full-screen card, not a toast ----
     if (c.state === 'wasted' || c.state === 'busted') {
@@ -5520,8 +5695,7 @@ function startGame() {
       ? [['tap here → resume', () => onPress('enter')],
          ['respawn リスポーン', () => onPress('reset')],
          [sndLbl, () => onPress('mute')],
-         [qLbl, () => QURAN.toggle()],
-         ...(QURAN.on ? [[null, null, 'qnav']] : []),
+         [qLbl + '  ▸ open player', () => QURAN.openPanel()],
          ['title タイトル', () => onPress('back')]]
       : pad.connected
       ? [['A / START resume · Y respawn', null],
@@ -5530,7 +5704,7 @@ function startGame() {
          ['B title', null]]
       : [['ENTER resume · R respawn', null],
          [sndLbl + ' · M', null],
-         [qLbl + ' · Q  ·  [ ] surah', null],
+         [qLbl + ' · Q play/pause · L open player', () => QURAN.openPanel()],
          ['BACKSPACE title', null]];
     let y = H * 0.48;
     for (const [label, act, kind] of items) {
@@ -5817,7 +5991,7 @@ function startGame() {
 
   function drawTouch() {
     if (!touchControlsEnabled() || !(G.state === 'play' || G.state === 'count')) return;
-    layoutTouch();
+    touchLayoutFresh();
     const st = touchState();
     for (const b of touchBtns) {
       ctx.save();
@@ -5825,22 +5999,51 @@ function startGame() {
       ctx.fillStyle = st[b.id] ? '#ffd166' : '#ffffff';
       ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
       ctx.globalAlpha = 0.85;
-      // the handbrake button doubles as FIRE while on foot in the city
-      const lbl = (TRACK.city && G.onFoot && b.id === 'eb') ? '撃つ' : b.label;
-      txt(ctx, lbl, b.x, b.y + 1, b.r * 0.52, '#1a0e2e', 'center', 900);
+      txt(ctx, b.label, b.x, b.y + 1, b.r * (b.label.length > 3 ? 0.34 : 0.46), '#1a0e2e', 'center', 900);
       ctx.restore();
     }
-    // NEO CITY: get in / out button (above the handbrake/fire cluster)
+    // ---- city thumbstick ----
+    if (joyEnabled()) {
+      const R = joyRadius();
+      if (joy) {
+        const v = joyVec();
+        ctx.save();
+        // base ring
+        ctx.globalAlpha = 0.22; ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(joy.ox, joy.oy, R, 0, TAU); ctx.fill();
+        ctx.globalAlpha = 0.5; ctx.strokeStyle = '#7dffb0'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(joy.ox, joy.oy, R, 0, TAU); ctx.stroke();
+        // knob
+        ctx.globalAlpha = 0.75; ctx.fillStyle = '#7dffb0';
+        ctx.beginPath(); ctx.arc(joy.ox + v.x * R, joy.oy + v.y * R, R * 0.42, 0, TAU); ctx.fill();
+        ctx.restore();
+      } else {
+        // idle hint so a first-time player knows the left thumb is the stick
+        const R2 = Math.min(W, H) * 0.115;
+        const hx = R2 * 1.5, hy = H - R2 * 1.5;
+        ctx.save();
+        ctx.globalAlpha = 0.14; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+        ctx.setLineDash([6, 7]);
+        ctx.beginPath(); ctx.arc(hx, hy, R2, 0, TAU); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 0.3;
+        txt(ctx, G.onFoot ? '歩く' : 'ステア', hx, hy, 12, '#fff', 'center', 800);
+        ctx.restore();
+      }
+    }
+    // NEO CITY: get in / out button, above the right-hand cluster
     if (TRACK.city) {
       const r = Math.min(W, H) * 0.075, pad = r * 0.5;
-      const fx = W - pad - r * 3.6, fy = H - pad - r * 5.0, fr = r * 0.9;
+      const fx = G.onFoot ? W - pad - r * 3.5 : W - pad - r * 3.7;
+      const fy = G.onFoot ? H - pad - r * 1.4 : H - pad - r * 5.05;
+      const fr = r * 0.95;
       ctx.save();
-      ctx.globalAlpha = 0.32; ctx.fillStyle = '#7dffb0';
+      ctx.globalAlpha = 0.34; ctx.fillStyle = '#7dffb0';
       ctx.beginPath(); ctx.arc(fx, fy, fr, 0, TAU); ctx.fill();
-      ctx.globalAlpha = 0.9;
-      txt(ctx, G.onFoot ? '乗る' : '降りる', fx, fy + 1, fr * 0.44, '#0c1a10', 'center', 900);
+      ctx.globalAlpha = 0.92;
+      txt(ctx, G.onFoot ? '乗る' : '降りる', fx, fy + 1, fr * 0.42, '#0c1a10', 'center', 900);
       ctx.restore();
-      zones.push({ x: fx - fr, y: fy - fr, w: fr * 2, h: fr * 2, act: () => CITY.enterExit() });
+      zones.push({ x: fx - fr * 1.15, y: fy - fr * 1.15, w: fr * 2.3, h: fr * 2.3, act: () => CITY.enterExit() });
     }
     // pause tap-target — without it a phone player can never pause,
     // respawn (pause menu has it) or leave a race
@@ -5866,21 +6069,150 @@ function startGame() {
       ctx.globalAlpha = 0.85;
       txt(ctx, 'قرآن', qx, qy + 1, 14, '#1a0e2e', 'center', 900);
       ctx.restore();
-      zones.push({ x: qx - 33, y: 0, w: 66, h: 54, act: () => QURAN.toggle() });
+      zones.push({ x: qx - 33, y: 0, w: 66, h: 54, act: () => QURAN.openPanel() });
     }
   }
 
   // now-playing chip: surah + reciter, drawn over every screen while
   // the Quran plays (or a brief warning when the stream can't load)
   function drawQuranChip() {
+    if (QURAN.open) return;                   // the panel says it all
     if (G.t < QURAN.errUntil) {
       txt(ctx, 'قرآن unavailable — check connection', W / 2, 36, 12, '#ffb14d', 'center', 800, 6);
       return;
     }
     if (!QURAN.on) return;
     const s = QURAN.cur();
-    txt(ctx, 'سورة ' + s.ar + ' · ' + s.en + ' (' + s.n + '/114) · ناصر القطامي' + (QURAN.loading ? ' …' : ''),
-      W / 2, 36, 12.5, '#7dffb0', 'center', 800, 8);
+    const label = 'سورة ' + s.ar + ' · ' + s.en + ' (' + s.n + '/114)' + (QURAN.loading ? ' …' : '');
+    ctx.font = FONT(800, 12.5);
+    const tw = ctx.measureText(label).width;
+    const bw = Math.min(W - 40, tw + 34), bx = W / 2 - bw / 2;
+    // tappable now-playing chip → opens the full player
+    ctx.save();
+    rr(ctx, bx, 22, bw, 26, 13);
+    ctx.fillStyle = 'rgba(10,26,18,0.72)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(125,255,176,0.5)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+    txt(ctx, label, W / 2, 36, 12.5, '#7dffb0', 'center', 800, 6);
+    // a thin progress line under the chip
+    const p = QURAN.pos();
+    if (p.dur > 0) {
+      ctx.fillStyle = 'rgba(125,255,176,0.65)';
+      ctx.fillRect(bx + 6, 46, (bw - 12) * p.f, 2);
+    }
+    zones.push({ x: bx, y: 20, w: bw, h: 32, act: () => QURAN.openPanel() });
+  }
+
+  // ---------------------------------------------- Quran player panel
+  const fmtSec = t => {
+    if (!isFinite(t) || t < 0) return '--:--';
+    const m = Math.floor(t / 60), s = Math.floor(t % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  };
+  function drawQuranPanel() {
+    const Q = QURAN;
+    // responsive sheet: near-fullscreen on a phone, a centred card on desktop
+    const mobile = W < 620;
+    const pw = mobile ? Math.min(W - 20, 460) : 440;
+    const ph = mobile ? Math.min(H - 24, 720) : Math.min(H - 60, 620);
+    const px = (W - pw) / 2, py = (H - ph) / 2;
+    QP.x = px; QP.y = py; QP.w = pw; QP.h = ph;
+    QP.rowH = mobile ? 52 : 46;              // fat rows for thumbs
+    QP.rows = []; QP.btns = []; QP.bar = null;
+
+    // backdrop (tap outside to close)
+    ctx.fillStyle = 'rgba(6,4,14,0.72)';
+    ctx.fillRect(0, 0, W, H);
+
+    // card
+    ctx.save();
+    rr(ctx, px, py, pw, ph, 18);
+    ctx.fillStyle = 'rgba(14,20,18,0.98)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(125,255,176,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+
+    // ---- header ----
+    txt(ctx, 'القرآن الكريم', px + pw / 2, py + 30, 21, '#7dffb0', 'center', 900, 10);
+    txt(ctx, 'ناصر القطامي · Nasser Al Qatami', px + pw / 2, py + 52, 12, 'rgba(255,255,255,0.6)', 'center', 700);
+    // close ×
+    const cxb = px + pw - 26, cyb = py + 26;
+    txt(ctx, '×', cxb, cyb, 26, 'rgba(255,255,255,0.75)', 'center', 900);
+    QP.btns.push({ x: cxb - 22, y: cyb - 22, w: 44, h: 44, act: () => Q.closePanel() });
+
+    // ---- now playing + seek ----
+    const s = Q.cur(), p = Q.pos();
+    const nyY = py + 82;
+    txt(ctx, s.ar + ' · ' + s.en, px + pw / 2, nyY, 16, '#fff', 'center', 900);
+    txt(ctx, 'سورة ' + s.n + ' / 114' + (Q.loading ? ' · loading…' : ''),
+      px + pw / 2, nyY + 20, 11.5, 'rgba(255,255,255,0.55)', 'center', 700);
+    // seek bar
+    const bx = px + 26, bw = pw - 52, by = nyY + 40;
+    ctx.fillStyle = 'rgba(255,255,255,0.14)'; rr(ctx, bx, by, bw, 6, 3); ctx.fill();
+    if (p.dur > 0) {
+      ctx.fillStyle = '#7dffb0'; rr(ctx, bx, by, bw * p.f, 6, 3); ctx.fill();
+      ctx.beginPath(); ctx.arc(bx + bw * p.f, by + 3, 6, 0, TAU); ctx.fill();
+    }
+    QP.bar = { x: bx - 10, y: by - 14, w: bw + 20, h: 34, bx, bw };
+    txt(ctx, fmtSec(p.cur), bx, by + 22, 11, 'rgba(255,255,255,0.6)', 'left', 700);
+    txt(ctx, fmtSec(p.dur), bx + bw, by + 22, 11, 'rgba(255,255,255,0.6)', 'right', 700);
+
+    // ---- transport ----
+    const tY = by + 56, R = mobile ? 30 : 27;
+    const mk = (cx2, r2, label, fs, act, accent) => {
+      ctx.save();
+      ctx.globalAlpha = accent ? 0.95 : 0.5;
+      ctx.fillStyle = accent ? '#7dffb0' : 'rgba(255,255,255,0.16)';
+      ctx.beginPath(); ctx.arc(cx2, tY, r2, 0, TAU); ctx.fill();
+      ctx.restore();
+      txt(ctx, label, cx2, tY + 1, fs, accent ? '#0c1a10' : '#fff', 'center', 900);
+      QP.btns.push({ x: cx2 - r2 - 6, y: tY - r2 - 6, w: (r2 + 6) * 2, h: (r2 + 6) * 2, act });
+    };
+    mk(px + pw / 2 - R * 2.6, R * 0.78, '◀◀', 13, () => Q.prev(), false);
+    mk(px + pw / 2, R, Q.on ? '❙❙' : '▶', Q.on ? 17 : 20, () => Q.toggle(), true);
+    mk(px + pw / 2 + R * 2.6, R * 0.78, '▶▶', 13, () => Q.next(), false);
+
+    // ---- surah list (scrollable) ----
+    const lY = tY + R + 22;
+    const lH = py + ph - lY - 14;
+    QP.listY = lY; QP.listH = lH;
+    Q.sc = lerp(Q.sc, clamp(Q.scT, 0, Q.maxScroll()), 0.28);
+    ctx.save();
+    rr(ctx, px + 12, lY, pw - 24, lH, 12); ctx.clip();
+    const first = Math.max(0, Math.floor(Q.sc / QP.rowH) - 1);
+    const last = Math.min(113, Math.ceil((Q.sc + lH) / QP.rowH) + 1);
+    for (let i = first; i <= last; i++) {
+      const ry = lY + i * QP.rowH - Q.sc;
+      const on = i === Q.idx;
+      const parts = SURAHS[i].split('|');
+      if (on) {
+        ctx.save();
+        rr(ctx, px + 14, ry + 2, pw - 28, QP.rowH - 4, 9);
+        ctx.fillStyle = 'rgba(125,255,176,0.16)'; ctx.fill();
+        ctx.strokeStyle = 'rgba(125,255,176,0.5)'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.restore();
+      }
+      // number badge
+      txt(ctx, String(i + 1), px + 36, ry + QP.rowH / 2, 12,
+        on ? '#7dffb0' : 'rgba(255,255,255,0.4)', 'center', 900);
+      // names
+      txt(ctx, parts[1], px + 58, ry + QP.rowH / 2 - 7, 13.5, on ? '#fff' : 'rgba(255,255,255,0.85)', 'left', 800);
+      txt(ctx, parts[0], px + pw - 30, ry + QP.rowH / 2 - 6, 15, on ? '#7dffb0' : 'rgba(255,255,255,0.6)', 'right', 800);
+      if (on && Q.on)
+        txt(ctx, '♪ now playing', px + 58, ry + QP.rowH / 2 + 11, 10, '#7dffb0', 'left', 700);
+      QP.rows.push({ i, x: px + 14, y: ry, w: pw - 28, h: QP.rowH });
+    }
+    ctx.restore();
+    // scrollbar
+    const ms = Q.maxScroll();
+    if (ms > 0) {
+      const th = Math.max(30, lH * (lH / (114 * QP.rowH)));
+      const ty = lY + (lH - th) * clamp(Q.sc / ms, 0, 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
+      rr(ctx, px + pw - 10, ty, 4, th, 2); ctx.fill();
+    }
+    // hint
+    txt(ctx, G.touch ? 'tap a surah · swipe to scroll' : 'Q close · ↑↓ scroll · ENTER play',
+      px + pw / 2, py + ph - 3, 10, 'rgba(255,255,255,0.35)', 'center', 700);
   }
 
   // ---------------------------------------------- render + main loop
@@ -5898,7 +6230,8 @@ function startGame() {
       case 'play': drawSpeedLines(); drawHUD(); drawTouch(); break;
       case 'pause': drawHUD(); drawPause(); break;
     }
-    drawQuranChip();
+    if (QURAN.open) { zones = []; drawQuranPanel(); }   // panel owns all input
+    else drawQuranChip();
   }
 
   let last = performance.now();
