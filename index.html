@@ -7,10 +7,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Adam's Race Room — Ebisu × Meihan × Nordschleife</title>
+<title>Adam's Race Room — Drift, GT & Open World</title>
 <meta name="description" content="Adam's Race Room — drift Ebisu & Meihan, hunt tourist traffic on a real 1:1 Nürburgring Nordschleife, or go free-roam in Neo City: walk, jack cars and dodge the police. 10 machines, 3 circuits + open-world city.">
 <meta property="og:title" content="Adam's Race Room">
-<meta property="og:description" content="Ebisu × Meihan × the real Nordschleife with tourist traffic. 10 machines, 3 circuits.">
+<meta property="og:description" content="Drift Ebisu & Meihan, chase the Nürburgring, or roam Neo City on foot and by car. 10 machines, 4 worlds.">
 <meta property="og:type" content="website">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32x32.png">
@@ -345,23 +345,23 @@ function buildCity() {
 // ---------------------------------------------- track registry
 const TRACKS = {
   ebisu: {
-    name: 'EBISU CIRCUIT', jp: '恵比寿サーキット', cat: 'drift', style: 'sakura',
+    name: 'EBISU CIRCUIT', jp: 'FUKUSHIMA · JAPAN', cat: 'drift', style: 'sakura',
     len: '2.1 km', desc: 'sakura dusk drift heaven — figure-8, wall runs',
     build: buildTrack
   },
   meihan: {
-    name: 'MEIHAN SPORTSLAND', jp: '名阪スポーツランド', cat: 'drift', style: 'meihan',
+    name: 'MEIHAN SPORTSLAND', jp: 'NARA · JAPAN', cat: 'drift', style: 'meihan',
     len: '1.5 km', desc: 'sodium-lit grassroots bowl — tyre walls, big sweeper',
     build: buildMeihan
   },
   nring: {
-    name: 'NORDSCHLEIFE', jp: 'ニュルブルクリンク北コース', cat: 'gt', style: 'eifel',
+    name: 'NORDSCHLEIFE', jp: 'EIFEL · GERMANY', cat: 'gt', style: 'eifel',
     len: '20.7 km', desc: 'the Green Hell — real 1:1 layout, tourist traffic',
     build: buildNring
   },
   city: {
-    name: 'NEO CITY', jp: 'ネオシティ', cat: 'drift', style: 'city',
-    len: 'open world', desc: 'sandbox — walk, jack cars, dodge the heat',
+    name: 'NEO CITY', jp: 'OPEN WORLD', cat: 'drift', style: 'city',
+    len: 'sandbox', desc: 'roam free — walk, jack cars, dodge the heat',
     build: buildCity
   }
 };
@@ -414,8 +414,8 @@ function anyOnTrack(x, y) {
 // only, zero badges, zero logos. Everything below is hand-drawn vector.
 const CARS = [
   {
-    id: 'ae86', name: 'AE-86', jp: 'ハチロク', tag: 'FR LIGHTWEIGHT · 峠の伝説',
-    desc: 'Light, loose, honest. Momentum is everything on the touge.',
+    id: 'ae86', name: 'AE-86', jp: '', tag: 'FR LIGHTWEIGHT · PASS LEGEND',
+    desc: 'Light, loose, honest. Momentum is everything on the mountain pass.',
     body: '#f2efe7', body2: '#8f8c84', accent: '#17171d', glow: '#ffb14d',
     stats: { power: 2, grip: 2, drift: 5 },
     phys: {
@@ -428,7 +428,7 @@ const CARS = [
            harm: [0, 1, 0.55, 0.20, 0.42, 0.10, 0.16, 0.06, 0.08] }   // 4A-GE: bright ITB four, big intake honk
   },
   {
-    id: 's15', name: 'S-15', jp: 'エス・フィフティーン', tag: 'TURBO DRIFT SPEC · 横向き純正',
+    id: 's15', name: 'S-15', jp: '', tag: 'TURBO DRIFT SPEC · FACTORY SIDEWAYS',
     desc: 'Factory drift missile. Kicks sideways and stays there.',
     body: '#ffd23e', body2: '#9d7a14', accent: '#15161d', glow: '#55e0ff',
     stats: { power: 3, grip: 3, drift: 4 },
@@ -442,7 +442,7 @@ const CARS = [
            harm: [0, 1, 0.72, 0.22, 0.30, 0.12, 0.10, 0.05, 0.04] }   // SR20DET: muffled four, small T28 whistles high
   },
   {
-    id: 'fd', name: 'FD-3S', jp: 'エフディー', tag: 'TWIN ROTOR · 回転の悪魔',
+    id: 'fd', name: 'FD-3S', jp: '', tag: 'TWIN ROTOR · SPINNING DEMON',
     desc: 'Razor rotary. Twitchy, fast, endlessly rewarding.',
     body: '#ff4438', body2: '#8d1d14', accent: '#1a1b22', glow: '#b06bff',
     stats: { power: 4, grip: 3, drift: 4 },
@@ -456,7 +456,7 @@ const CARS = [
            harm: [0, 1, 0.45, 0.60, 0.35, 0.40, 0.25, 0.28, 0.18] }   // 13B: dense buzzy spectrum, sequential twins
   },
   {
-    id: 'r34', name: 'R-34', jp: 'アール・サンヨン', tag: 'AWD MONSTER · 湾岸の怪物',
+    id: 'r34', name: 'R-34', jp: '', tag: 'AWD MONSTER · BAYSHORE BEAST',
     desc: 'AWD grip monster. The easy way to look like a pro.',
     body: '#3f7bff', body2: '#1b3a8f', accent: '#12131a', glow: '#55e0ff',
     stats: { power: 5, grip: 5, drift: 2 },
@@ -470,7 +470,7 @@ const CARS = [
            harm: [0, 1, 0.35, 0.80, 0.20, 0.30, 0.45, 0.12, 0.10] }   // RB26: creamy I6, twin ceramic turbos
   },
   {
-    id: 'a80', name: 'A-80', jp: 'エー・ハチマル', tag: 'BIG SINGLE TURBO · 直6の暴力',
+    id: 'a80', name: 'A-80', jp: '', tag: 'BIG SINGLE TURBO · INLINE-6 FURY',
     desc: 'Straight-six hammer. Huge power, huge angle, huge pops.',
     body: '#ff7a1a', body2: '#903f05', accent: '#17181f', glow: '#7dffb0',
     stats: { power: 5, grip: 3, drift: 3 },
@@ -488,7 +488,7 @@ const CARS = [
   // Nordschleife roster: badge-free GT3 lookalikes. Grip-biased physics
   // (aero + slicks), 6-speed sequential boxes with ~150 ms air shifts.
   {
-    id: 'p911', name: 'GT3-R', jp: 'ジーティースリー', tag: 'FLAT-6 SCREAMER · 緑の地獄の王', cat: 'gt', num: 911,
+    id: 'p911', name: 'GT3-R', jp: '', tag: 'FLAT-6 SCREAMER · KING OF THE GREEN HELL', cat: 'gt', num: 911,
     desc: 'Rear-engine precision. 9,000 rpm of flat-six fury.',
     body: '#f4f2ec', body2: '#8f8d86', accent: '#b8342a', glow: '#ff6a5e',
     stats: { power: 4, grip: 5, drift: 2 },
@@ -502,7 +502,7 @@ const CARS = [
            harm: [0, 1, 0.30, 0.72, 0.18, 0.28, 0.42, 0.30, 0.22] }   // flat-6: 3rd-order howl, bright top
   },
   {
-    id: 'amg', name: 'AMG-GT3', jp: 'エーエムジー', tag: 'V8 THUNDER · 雷鳴', cat: 'gt', num: 63,
+    id: 'amg', name: 'AMG-GT3', jp: '', tag: 'V8 THUNDER · THUNDERCLAP', cat: 'gt', num: 63,
     desc: 'Big atmo V8 up front, thunder everywhere else.',
     body: '#686d75', body2: '#33363c', accent: '#16171c', glow: '#5dffb2',
     stats: { power: 5, grip: 4, drift: 2 },
@@ -516,7 +516,7 @@ const CARS = [
            harm: [0, 1, 0.85, 0.30, 0.55, 0.15, 0.18, 0.08, 0.06] }   // crossplane V8: heavy 2nd/4th rumble, intake bellow
   },
   {
-    id: 'r8', name: 'R8-LMS', jp: 'アールエイト', tag: 'V10 WAIL · 咆哮', cat: 'gt', num: 5,
+    id: 'r8', name: 'R8-LMS', jp: '', tag: 'V10 WAIL · APEX ROAR', cat: 'gt', num: 5,
     desc: 'Mid-engine V10 singing to the Eifel forest.',
     body: '#c9cdd5', body2: '#767b85', accent: '#c22a2a', glow: '#ff4438',
     stats: { power: 5, grip: 5, drift: 1 },
@@ -530,7 +530,7 @@ const CARS = [
            harm: [0, 1, 0.25, 0.35, 0.30, 0.85, 0.35, 0.25, 0.40] }   // V10: screaming 5th-order signature
   },
   {
-    id: 'm4', name: 'M4-GT3', jp: 'エムフォー', tag: 'TURBO I6 PUNCH · 直6ターボ', cat: 'gt', num: 46,
+    id: 'm4', name: 'M4-GT3', jp: '', tag: 'TURBO I6 PUNCH · TWIN-SCROLL SIX', cat: 'gt', num: 46,
     desc: 'Boosted straight-six with a razor front end.',
     body: '#eef0f4', body2: '#8d9099', accent: '#2b4bd7', glow: '#55e0ff',
     stats: { power: 5, grip: 5, drift: 2 },
@@ -544,7 +544,7 @@ const CARS = [
            harm: [0, 1, 0.38, 0.78, 0.22, 0.25, 0.45, 0.10, 0.10] }   // modern turbo I6: race anti-lag response
   },
   {
-    id: 'gtr3', name: 'GT-R GT3', jp: 'ジーティーアール', tag: 'TWIN TURBO V6 · 日本の誇り', cat: 'gt', num: 23,
+    id: 'gtr3', name: 'GT-R GT3', jp: '', tag: 'TWIN TURBO V6 · PRIDE OF JAPAN', cat: 'gt', num: 23,
     desc: 'Godzilla in race trim. Boost and brutality.',
     body: '#23252b', body2: '#101115', accent: '#c22a2a', glow: '#ff2e44',
     stats: { power: 5, grip: 4, drift: 2 },
@@ -1068,19 +1068,19 @@ function startGame() {
       touchBtns = [
         { id: 'left',  x: pad + r,           y: H - pad - r, r, label: '◀' },
         { id: 'right', x: pad + r * 3.3,     y: H - pad - r, r, label: '▶' },
-        { id: 'eb',    x: W - pad - r * 3.6, y: H - pad - r * 2.9, r: r * 0.9, label: 'ドリ' },
-        { id: 'down',  x: W - pad - r * 3.6, y: H - pad - r, r: r * 0.9, label: 'ブ' },
+        { id: 'eb',    x: W - pad - r * 3.6, y: H - pad - r * 2.9, r: r * 0.9, label: 'DRIFT' },
+        { id: 'down',  x: W - pad - r * 3.6, y: H - pad - r, r: r * 0.9, label: 'BRAKE' },
         { id: 'up',    x: W - pad - r,       y: H - pad - r, r: r * 1.15, label: 'GAS' }
       ];
     } else if (touchLMode === 'drive') {
       touchBtns = [
-        { id: 'eb',   x: W - pad - r * 3.7, y: H - pad - r * 2.95, r: r * 0.9,  label: 'ハンド' },
-        { id: 'down', x: W - pad - r * 3.7, y: H - pad - r,        r: r * 0.95, label: 'ブレーキ' },
+        { id: 'eb',   x: W - pad - r * 3.7, y: H - pad - r * 2.95, r: r * 0.9,  label: 'HAND' },
+        { id: 'down', x: W - pad - r * 3.7, y: H - pad - r,        r: r * 0.95, label: 'BRAKE' },
         { id: 'up',   x: W - pad - r,       y: H - pad - r,        r: r * 1.25, label: 'GAS' }
       ];
     } else {   // on foot: one big FIRE button, movement on the stick
       touchBtns = [
-        { id: 'eb', x: W - pad - r * 1.15, y: H - pad - r * 1.15, r: r * 1.35, label: '撃つ' }
+        { id: 'eb', x: W - pad - r * 1.15, y: H - pad - r * 1.15, r: r * 1.35, label: 'FIRE' }
       ];
     }
   }
@@ -2308,7 +2308,7 @@ function startGame() {
       }
       G.onFoot = false; this.ped = null;
       this.jacks++;
-      this.crime(1, 'CARJACKED · 車を奪った');
+      this.crime(1, 'CARJACKED');
       this.alarmPeds(car.x, car.y, 170);
       SND.beep(220, 0.08, 'sawtooth', 0.06);
     },
@@ -2358,7 +2358,7 @@ function startGame() {
       this.bullets.push({ x: sx, y: sy, vx: Math.cos(a) * SP, vy: Math.sin(a) * SP, life: 0.55, from: 'player' });
       this.fx.push({ kind: 'muzzle', x: sx, y: sy, t: 0, life: 0.08 });
       SND.gun();
-      if (this.wanted < 1) this.crime(1, 'PACKING HEAT · 手配');   // brandishing = 1 star
+      if (this.wanted < 1) this.crime(1, 'PACKING HEAT');   // brandishing = 1 star
       this.wantedT = 0;
       this.alarmPeds(p.x, p.y, 250);
     },
@@ -2375,12 +2375,12 @@ function startGame() {
     },
     wasted() {
       this.lastState = 'wasted'; this.state = 'wasted'; this.busyT = 2.6;
-      this.setMsg('WASTED · 殺られた'); G.shake = 3; this.bullets = [];
+      this.setMsg('WASTED'); G.shake = 3; this.bullets = [];
       SND.beep(120, 0.5, 'sawtooth', 0.07);
     },
     busted() {
       this.lastState = 'busted'; this.state = 'busted'; this.busyT = 2.4;
-      this.setMsg('BUSTED · 逮捕'); SND.beep(420, 0.4, 'square', 0.06);
+      this.setMsg('BUSTED'); SND.beep(420, 0.4, 'square', 0.06);
     },
     updateBullets(dt) {
       const B = TRACK.BLOCK;
@@ -2488,7 +2488,7 @@ function startGame() {
       this.wantedT += dt;
       this.hitFlash = Math.max(0, (this.hitFlash || 0) - dt);
       const cool = this.wanted >= 4 ? 15 : this.wanted >= 2 ? 11 : 8;
-      if (this.wanted > 0 && this.wantedT > cool) { this.wanted--; this.wantedT = 0; if (this.wanted === 0) this.setMsg('heat off · 手配解除'); }
+      if (this.wanted > 0 && this.wantedT > cool) { this.wanted--; this.wantedT = 0; if (this.wanted === 0) this.setMsg('HEAT OFF'); }
     },
     updateFx(dt) {
       for (let i = this.fx.length - 1; i >= 0; i--) {
@@ -3041,7 +3041,7 @@ function startGame() {
     sakura: {
       grass: ['#3b4839', '#294034', '#20342d'], sun: '255,150,120',
       wash: ['rgba(255,120,160,0.10)', 'rgba(90,60,140,0.06)', 'rgba(20,10,40,0.16)'],
-      curb: ['#ff5a66', '#f5f0ea'], kanji: '恵比寿',
+      curb: ['#ff5a66', '#f5f0ea'], kanji: 'EBISU',
       neonL: ['#ff5fb4', '#ff6fc0', '#ffdcef'], neonR: ['#31d5ff', '#3fd8ff', '#dcf9ff'],
       tree: { cols: ['#ff9ec9', '#ffb3d6', '#f77fb4', '#ffc7de', '#ff8fbe'],
               trunk: ['#4a2a3a', '#5a3448'], hi: 'rgba(255,224,238,0.85)' }
@@ -3049,7 +3049,7 @@ function startGame() {
     meihan: {
       grass: ['#4a4a34', '#3d442f', '#2f3a2b'], sun: '255,180,90',
       wash: ['rgba(255,150,60,0.10)', 'rgba(140,90,60,0.06)', 'rgba(28,16,32,0.18)'],
-      curb: ['#e04a30', '#f0e8d8'], kanji: '名阪',
+      curb: ['#e04a30', '#f0e8d8'], kanji: 'MEIHAN',
       neonL: ['#ffb14d', '#ffc06a', '#ffe9c8'], neonR: ['#ff6a3d', '#ff8a5e', '#ffd9c8'],
       tree: { cols: ['#4c7a44', '#5b8a4d', '#3f6a3a', '#6b9a58', '#457540'],
               trunk: ['#3a2c22', '#4a382b'], hi: 'rgba(214,244,196,0.55)' }
@@ -3279,7 +3279,7 @@ function startGame() {
               g2.fillStyle = '#ffd166';
               g2.font = '900 13px system-ui, sans-serif';
               g2.textAlign = 'center'; g2.textBaseline = 'middle';
-              g2.fillText(TRACKS[TRACK.id].name + ' · ' + stylePal().kanji, 0, 0);
+              g2.fillText(TRACKS[TRACK.id].name, 0, 0);
               g2.restore();
             }
           });
@@ -3362,7 +3362,7 @@ function startGame() {
                 g2.fillStyle = 'rgba(255,255,255,0.55)';
                 g2.font = '800 15px system-ui, sans-serif';
                 g2.textAlign = 'center'; g2.textBaseline = 'middle';
-                g2.fillText('ピット PIT', 0, 0);
+                g2.fillText('PIT', 0, 0);
                 g2.restore();
               }
             });
@@ -4196,7 +4196,7 @@ function startGame() {
             G.shake = Math.max(G.shake, 2.2);
             SND.thud(); rumble(0.7, 150);
             if (score.chain > 1) {
-              addPop(car.x, car.y - 30, 'CONTACT! 接触', '#ff6a6a', 18);
+              addPop(car.x, car.y - 30, 'CONTACT!', '#ff6a6a', 18);
               score.chain = 0; score.mult = 1; score.chainT = 0; score.grace = 0;
             }
           }
@@ -4216,8 +4216,8 @@ function startGame() {
           score.passes++;
           score.total += 500;
           addPop(t.x, t.y - 28, 'PASS! +500', '#7dffb0', 16);
-          if (score.passes === 3) { setCallout('TRAFFIC SLAYER!', '追い越し職人！'); SND.callout(); }
-          else if (score.passes === 10) { setCallout('FLOW MASTER!', '流れの達人！'); SND.callout(); }
+          if (score.passes === 3) { setCallout('TRAFFIC SLAYER!', '3 PASSES'); SND.callout(); }
+          else if (score.passes === 10) { setCallout('FLOW MASTER!', '10 PASSES'); SND.callout(); }
           else SND.bank();
         }
         t.wasAhead = aheadNow;
@@ -4450,7 +4450,7 @@ function startGame() {
     // spin-out drops the combo (more forgiving in v2) — no combos in city
     if (!TRACK.city && Math.abs(slip) > 2.35 && speed > 80 && !c.spinLock) {
       c.spinLock = true;
-      if (score.chain > 1) addPop(c.x, c.y - 30, 'SPIN! スピン', '#ff6a6a', 20);
+      if (score.chain > 1) addPop(c.x, c.y - 30, 'SPIN OUT!', '#ff6a6a', 20);
       score.chain = 0; score.mult = 1; score.chainT = 0; score.grace = 0;
       score.wallCalled = false;
       SND.beep(160, 0.25, 'sawtooth', 0.06);
@@ -4488,9 +4488,9 @@ function startGame() {
       const m = 1 + Math.min(8, Math.floor(score.chainT / 2.0));
       if (m > score.mult) {
         score.mult = m;
-        if (m === 3) { setCallout('NICE DRIFT!', 'いいぞ！'); SND.callout(); }
-        if (m === 5) { setCallout('ONI DRIFT!', '鬼ドリ！'); SND.callout(); }
-        if (m === 7) { setCallout('KANSEI DORIFTO!!', '慣性ドリフト!!'); SND.callout(); }
+        if (m === 3) { setCallout('NICE DRIFT!', '×3 COMBO'); SND.callout(); }
+        if (m === 5) { setCallout('SUPER DRIFT!', '×5 COMBO'); SND.callout(); }
+        if (m === 7) { setCallout('INSANE DRIFT!!', '×7 COMBO'); SND.callout(); }
       }
       const angleF = clamp(Math.abs(car.slip) / 1.05, 0, 1);
       const speedF = clamp(car.speed / 500, 0, 1.2);
@@ -4501,7 +4501,7 @@ function startGame() {
         car.wallT += dt;
         if (!score.wallCalled && car.wallT > 0.4) {
           score.wallCalled = true;
-          setCallout('WALL RUN!', '壁ドリ！'); SND.callout();
+          setCallout('WALL RUN!', 'INCHES TO SPARE'); SND.callout();
         }
       } else car.wallT = 0;
     } else if (score.grace > 0) {
@@ -4548,7 +4548,7 @@ function startGame() {
             ts.bestLap = lap.best;
             ts.ghost = encGhost(lap.rec, car.spec.id, TRACK.dyn ? 8 : 4);
             SAVE.write();
-            addPop(car.x, car.y - 46, 'NEW RECORD! 新記録', '#7dffb0', 20);
+            addPop(car.x, car.y - 46, 'NEW RECORD!', '#7dffb0', 20);
             SND.callout();
           } else {
             addPop(car.x, car.y - 46, fmtT(lap.cur), '#cfd8ff', 17);
@@ -5445,7 +5445,7 @@ function startGame() {
     ctx.shadowBlur = 0;
     ctx.font = FONT(700, 14);
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.fillText('km/h · 速度', 24, 76);
+    ctx.fillText('km/h', 24, 76);
     // gear + rpm bar
     ctx.font = FONT(900, 20);
     ctx.fillStyle = '#ffd166';
@@ -5466,12 +5466,12 @@ function startGame() {
       ctx.fillText('BOOST', 176, 109);
     }
     if (car.drifting) txt(ctx, 'DRIFT!', 52, 128, 15, '#ff7ab8', 'center', 800, 12);
-    if (car.off) txt(ctx, 'コースアウト off track', 92, car.drifting ? 148 : 128, 12, '#ffb14d', 'center', 700, 6);
+    if (car.off) txt(ctx, 'OFF TRACK', 66, car.drifting ? 148 : 128, 12, '#ffb14d', 'center', 700, 6);
     ctx.restore();
 
     // score (top-right)
     ctx.save();
-    txt(ctx, 'スコア SCORE', W - 22, 26, 13, 'rgba(255,255,255,0.75)', 'right');
+    txt(ctx, 'SCORE', W - 22, 26, 13, 'rgba(255,255,255,0.75)', 'right');
     txt(ctx, score.total.toLocaleString(), W - 22, 54, 30, '#ffd166', 'right', 800, 12);
     if (score.chain > 0) {
       const c = score.mult >= 5 ? '#ff7ab8' : (score.mult >= 3 ? '#ffb14d' : '#9fe8ff');
@@ -5494,7 +5494,7 @@ function startGame() {
     if (G.mode === 'tt') {
       const bx = 18, by = H - (nr ? 126 : 108);
       panel(ctx, bx, by, 205, nr ? 110 : 92, 'rgba(85,224,255,0.5)');
-      txt(ctx, 'タイムアタック TIME ATTACK', bx + 12, by + 16, 11, '#9fe8ff', 'left');
+      txt(ctx, 'TIME ATTACK', bx + 12, by + 16, 11, '#9fe8ff', 'left');
       txt(ctx, 'LAP ' + (lap.count + 1) + '   ' + fmtT(lap.cur), bx + 12, by + 38, 17, '#fff', 'left', 800);
       txt(ctx, 'BEST ' + fmtT(lap.best), bx + 12, by + 60, 13, '#7dffb0', 'left');
       txt(ctx, 'LAST ' + fmtT(lap.last), bx + 12, by + 78, 13, '#cfd8ff', 'left');
@@ -5505,7 +5505,7 @@ function startGame() {
       txt(ctx, 'TOURIST DRIVE · ' + kmLbl + ' · PASS ' + score.passes,
         20, H - 22, 12, 'rgba(255,255,255,0.6)', 'left');
     } else {
-      txt(ctx, 'フリー走行 FREESTYLE · BEST CHAIN ' + Math.round(Math.max(score.best, tsave().bestChain || 0)).toLocaleString(),
+      txt(ctx, 'FREESTYLE · BEST CHAIN ' + Math.round(Math.max(score.best, tsave().bestChain || 0)).toLocaleString(),
         18 + 2, H - 22, 12, 'rgba(255,255,255,0.6)', 'left');
     }
 
@@ -5518,8 +5518,8 @@ function startGame() {
       ctx.globalAlpha = a;
       ctx.translate(W / 2, H * 0.3);
       ctx.scale(sc, sc);
-      txt(ctx, callout.en, 0, -14, 42, '#ff7ab8', 'center', 900, 22);
-      txt(ctx, callout.jp, 0, 26, 24, '#ffd166', 'center', 800, 14);
+      txt(ctx, callout.en, 0, callout.jp ? -14 : 4, 42, '#ff7ab8', 'center', 900, 22);
+      if (callout.jp) txt(ctx, callout.jp, 0, 26, 20, '#ffd166', 'center', 800, 12);
       ctx.restore();
     }
 
@@ -5534,17 +5534,17 @@ function startGame() {
 
     drawMinimap();
     if (SND.muted)
-      txt(ctx, 'ミュート MUTED · M', W / 2, 16, 11, 'rgba(255,255,255,0.55)', 'center', 800);
+      txt(ctx, 'MUTED · M', W / 2, 16, 11, 'rgba(255,255,255,0.55)', 'center', 800);
 
     // wrong way
     if (G.wrong > 0.7 && Math.floor(G.t * 3) % 2 === 0)
-      txt(ctx, '逆走！ WRONG WAY', W / 2, H * 0.18, 30, '#ff5a5a', 'center', 900, 18);
+      txt(ctx, 'WRONG WAY', W / 2, H * 0.18, 30, '#ff5a5a', 'center', 900, 18);
 
     // controls hint
     if (lap.run < 6 && (!G.touch || pad.connected))
       txt(ctx, pad.connected || G.t - G.padT < 10
         ? 'STICK steer · RT gas · LT brake · A handbrake · Y respawn · START pause'
-        : 'WASD/矢印 drive · SPACE handbrake · R respawn · ESC pause · M mute · Q quran', W / 2, H - 20,
+        : 'WASD drive · SPACE handbrake · R respawn · ESC pause · M mute · Q quran', W / 2, H - 20,
         12, 'rgba(255,255,255,0.55)');
   }
 
@@ -5562,7 +5562,7 @@ function startGame() {
     if (onFoot) {
       ctx.font = FONT(900, 21);
       ctx.fillStyle = '#7dffb0'; ctx.shadowColor = '#7dffb0'; ctx.shadowBlur = 12;
-      ctx.fillText('徒歩 ON FOOT', 22, 42);
+      ctx.fillText('ON FOOT', 22, 42);
     } else {
       // lay the cluster out from the measured number so km/h and the gear
       // can never collide with a 3-digit speed
@@ -5580,7 +5580,7 @@ function startGame() {
     ctx.shadowBlur = 0;
     // health
     ctx.font = FONT(700, 11); ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.fillText('体力 HEALTH', 22, 66);
+    ctx.fillText('HEALTH', 22, 66);
     ctx.fillStyle = 'rgba(255,255,255,0.14)'; rr(ctx, 22, 72, 172, 10, 5); ctx.fill();
     const hpf = clamp(c.hp / c.maxHp, 0, 1);
     ctx.fillStyle = hpf > 0.5 ? '#7dffb0' : hpf > 0.25 ? '#ffd166' : '#ff5a5a';
@@ -5589,8 +5589,8 @@ function startGame() {
     const touching = touchControlsEnabled();
     ctx.font = FONT(800, 12);
     ctx.fillStyle = onFoot ? '#ffd166' : 'rgba(255,255,255,0.45)';
-    ctx.fillText(onFoot ? (touching ? 'PISTOL 拳銃 · 撃つ' : 'PISTOL 拳銃 · SPACE')
-      : (touching ? '降りる to get out' : 'F to get out'), 22, 100);
+    ctx.fillText(onFoot ? (touching ? 'PISTOL · tap FIRE' : 'PISTOL · SPACE to fire')
+      : (touching ? 'tap EXIT to get out' : 'F to get out'), 22, 100);
     ctx.restore();
 
     // ---- WANTED stars ----
@@ -5600,14 +5600,14 @@ function startGame() {
     ctx.save();
     const flash = c.wanted > 0 && Math.floor(G.t * 6) % 2 === 0;
     if (narrow) {
-      txt(ctx, '指名手配', 22, 124, 10, 'rgba(255,255,255,0.6)', 'left', 800);
+      txt(ctx, 'WANTED', 22, 124, 10, 'rgba(255,255,255,0.6)', 'left', 800);
       for (let i = 0; i < 5; i++) {
         const on = i < c.wanted;
         txt(ctx, '★', 72 + i * 20, 124, 17,
           on ? (flash ? '#ffe27a' : '#ffb14d') : 'rgba(255,255,255,0.16)', 'center', 900, on ? 8 : 0);
       }
     } else {
-      txt(ctx, '指名手配 WANTED', W - 22, 26, 12, 'rgba(255,255,255,0.7)', 'right', 800);
+      txt(ctx, 'WANTED', W - 22, 26, 12, 'rgba(255,255,255,0.7)', 'right', 800);
       for (let i = 0; i < 5; i++) {
         const on = i >= 5 - c.wanted;   // fill from the left
         txt(ctx, '★', W - 30 - i * 26, 54, 22,
@@ -5640,7 +5640,7 @@ function startGame() {
       const sc = 0.75 + 0.25 * (1 - Math.pow(1 - k, 3));
       ctx.translate(W / 2, H * 0.44); ctx.scale(sc, sc);
       txt(ctx, dead ? 'WASTED' : 'BUSTED', 0, 0, 62, dead ? '#ff5a5a' : '#ffd166', 'center', 900, 26);
-      txt(ctx, dead ? '殺られた' : '逮捕', 0, 46, 24, 'rgba(255,255,255,0.8)', 'center', 800, 10);
+      txt(ctx, dead ? 'you got wasted' : 'the cops got you', 0, 46, 17, 'rgba(255,255,255,0.75)', 'center', 800, 10);
       txt(ctx, dead ? 'patched up at the hospital…' : 'released, heat cleared…', 0, 82, 14,
         'rgba(255,255,255,0.6)', 'center', 700);
       ctx.restore();
@@ -5657,7 +5657,7 @@ function startGame() {
         : 'WASD drive · SPACE handbrake · F get out · R hospital', W / 2, H - 20,
         12, 'rgba(255,255,255,0.5)');
     }
-    if (SND.muted) txt(ctx, 'ミュート MUTED · M', W / 2, 16, 11, 'rgba(255,255,255,0.55)', 'center', 800);
+    if (SND.muted) txt(ctx, 'MUTED · M', W / 2, 16, 11, 'rgba(255,255,255,0.55)', 'center', 800);
   }
 
   function drawMinimap() {
@@ -5717,7 +5717,7 @@ function startGame() {
     ctx.translate(W / 2, H * 0.4);
     ctx.scale(sc, sc);
     if (n > 0) txt(ctx, n, 0, 0, 110, '#ffd166', 'center', 900, 30);
-    else txt(ctx, 'GO! 行け！', 0, 0, 72, '#7dffb0', 'center', 900, 26);
+    else txt(ctx, 'GO!', 0, 0, 80, '#7dffb0', 'center', 900, 26);
     ctx.restore();
     txt(ctx, TRACKS[G.track].name + ' · ' + TRACKS[G.track].len,
       W / 2, H * 0.4 + 92, 15, 'rgba(255,255,255,0.65)', 'center', 800, 6);
@@ -5725,15 +5725,15 @@ function startGame() {
   function drawPause() {
     ctx.fillStyle = 'rgba(10,4,22,0.62)';
     ctx.fillRect(0, 0, W, H);
-    txt(ctx, 'ポーズ PAUSED', W / 2, H * 0.34, 42, '#fff', 'center', 900, 18, '#b06bff');
-    const sndLbl = 'サウンド sound: ' + (SND.muted ? 'OFF' : 'ON');
+    txt(ctx, 'PAUSED', W / 2, H * 0.34, 42, '#fff', 'center', 900, 18, '#b06bff');
+    const sndLbl = 'SOUND: ' + (SND.muted ? 'OFF' : 'ON');
     const qLbl = 'قرآن quran: ' + (QURAN.on ? QURAN.cur().en : 'OFF');
     const items = touchControlsEnabled()
       ? [['tap here → resume', () => onPress('enter')],
-         ['respawn リスポーン', () => onPress('reset')],
+         ['respawn', () => onPress('reset')],
          [sndLbl, () => onPress('mute')],
          ['قرآن ▸ open player', () => QURAN.openPanel()],
-         ['title タイトル', () => onPress('back')]]
+         ['quit to title', () => onPress('back')]]
       : pad.connected
       ? [['A / START resume · Y respawn', null],
          [sndLbl + ' · M', null],
@@ -5788,29 +5788,107 @@ function startGame() {
     cam.rot += angNorm(0 - cam.rot) * k;
   }
 
+  // letter-spaced centred line (spacing is widely supported; harmless if not)
+  function spacedTxt(str, x, y, size, color, weight, ls, glow) {
+    ctx.save();
+    ctx.font = FONT(weight, size);
+    try { ctx.letterSpacing = ls + 'px'; } catch (e) {}
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = size * 0.7; }
+    ctx.fillStyle = color; ctx.fillText(str, x, y);
+    ctx.restore();
+  }
+  // a small rounded stat pill
+  function chip(cx, cy, label, accent) {
+    ctx.font = FONT(800, 12);
+    const tw = ctx.measureText(label).width, w = tw + 26, h = 24;
+    ctx.save();
+    rr(ctx, cx - w / 2, cy - h / 2, w, h, h / 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill();
+    ctx.strokeStyle = accent; ctx.globalAlpha = 0.55; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+    txt(ctx, label, cx, cy, 12, '#fff', 'center', 800);
+    return w;
+  }
+
   function drawTitle() {
-    ctx.fillStyle = 'rgba(14,5,28,0.45)';
-    ctx.fillRect(0, 0, W, H);
-    const cy = H * 0.36;
-    const bob = Math.sin(G.t * 1.6) * 6;
-    txt(ctx, 'アダムのレースルーム', W / 2, cy - 66 + bob, Math.min(34, W * 0.062), '#ffd166', 'center', 900, 22);
-    txt(ctx, "ADAM'S RACE ROOM", W / 2, cy + bob, Math.min(54, W * 0.093), '#fff', 'center', 900, 26, '#ff5fb4');
-    txt(ctx, 'EBISU × MEIHAN × NORDSCHLEIFE × NEO CITY', W / 2, cy + 52 + bob, Math.min(15, W * 0.036), '#9fe8ff', 'center', 800, 10);
-    txt(ctx, 'NEO 3D · 10 MACHINES · 3 CIRCUITS + OPEN CITY', W / 2, cy + 82 + bob, 13, '#7dffb0', 'center', 800, 6);
-    const bw = 260, bx = W / 2 - bw / 2, by = H * 0.66;
-    const pulse = 0.6 + 0.4 * Math.sin(G.t * 3);
-    panel(ctx, bx, by, bw, 54, 'rgba(255,209,102,' + pulse + ')', '#ffd166');
-    txt(ctx, pad.connected ? 'A / START · スタート' : (G.touch ? 'タップ TAP TO START' : 'ENTER · スタート'),
-      W / 2, by + 28, 19, '#ffd166', 'center', 900, 10);
+    // cinematic scrim: darken top & bottom so the wordmark reads over the
+    // attract-mode drive, with a soft centre spotlight
+    const g0 = ctx.createLinearGradient(0, 0, 0, H);
+    g0.addColorStop(0, 'rgba(10,4,22,0.72)');
+    g0.addColorStop(0.42, 'rgba(12,5,26,0.28)');
+    g0.addColorStop(0.72, 'rgba(12,5,26,0.34)');
+    g0.addColorStop(1, 'rgba(8,3,18,0.86)');
+    ctx.fillStyle = g0; ctx.fillRect(0, 0, W, H);
+
+    const cx = W / 2, cy = H * 0.40;
+    const s = clamp(W / 940, 0.62, 1.25);
+    const bob = Math.sin(G.t * 1.4) * 4;
+
+    // kicker
+    spacedTxt('DRIFT  ·  GT  ·  OPEN WORLD', cx, cy - 92 * s + bob, 13 * s, '#55e0ff', 800, 4 * s, 'rgba(85,224,255,0.5)');
+
+    // wordmark — auto-fit to the viewport width
+    let ws = Math.min(70 * s, W * 0.12);
+    ctx.font = FONT(900, ws);
+    const wm = "ADAM'S RACE ROOM";
+    const maxW = W * 0.9;
+    if (ctx.measureText(wm).width > maxW) ws *= maxW / ctx.measureText(wm).width;
+    // soft shadow pass + crisp top
+    txt(ctx, wm, cx, cy - 44 * s + bob, ws, 'rgba(255,95,180,0.55)', 'center', 900, 34);
+    txt(ctx, wm, cx, cy - 46 * s + bob, ws, '#ffffff', 'center', 900, 0);
+    // gold underline accent that breathes
+    const uw = Math.min(ctx.measureText(wm).width, maxW) * 0.5 * (0.96 + 0.04 * Math.sin(G.t * 2));
+    ctx.save();
+    ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 14;
+    ctx.fillStyle = '#ffd166';
+    ctx.fillRect(cx - uw, cy - 44 * s + ws * 0.5 + 8 + bob, uw * 2, 3);
+    ctx.restore();
+
+    // locations
+    spacedTxt('EBISU   MEIHAN   NORDSCHLEIFE   NEO CITY', cx, cy + 18 * s + bob,
+      Math.min(14 * s, W * 0.032), 'rgba(255,255,255,0.82)', 800, 2 * s, 0);
+
+    // feature chips
+    const chips = ['10 MACHINES', '4 WORLDS', 'POLICE & CHAOS', 'QURAN PLAYER'];
+    if (W > 460) {
+      ctx.font = FONT(800, 12);
+      const gap = 12;
+      let total = 0; const ws2 = chips.map(c => ctx.measureText(c).width + 26);
+      total = ws2.reduce((a, b) => a + b, 0) + gap * (chips.length - 1);
+      let x = cx - total / 2;
+      const accents = ['#ff7ab8', '#ffd166', '#ff5a5a', '#7dffb0'];
+      for (let i = 0; i < chips.length; i++) { chip(x + ws2[i] / 2, cy + 52 * s, chips[i], accents[i]); x += ws2[i] + gap; }
+    } else {
+      chip(cx, cy + 52 * s, '10 CARS · 4 WORLDS · QURAN', '#7dffb0');
+    }
+
+    // CTA button (pulses)
+    const bw = clamp(300 * s, 220, 340), bh = 56, bx = cx - bw / 2, by = H * 0.72;
+    const pulse = 0.5 + 0.5 * Math.sin(G.t * 3.2);
+    ctx.save();
+    rr(ctx, bx, by, bw, bh, bh / 2);
+    const grd = ctx.createLinearGradient(bx, by, bx + bw, by);
+    grd.addColorStop(0, 'rgba(255,122,184,' + (0.16 + pulse * 0.14) + ')');
+    grd.addColorStop(1, 'rgba(85,224,255,' + (0.16 + pulse * 0.14) + ')');
+    ctx.fillStyle = grd; ctx.fill();
+    ctx.shadowColor = '#ff7ab8'; ctx.shadowBlur = 10 + pulse * 14;
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.55 + pulse * 0.4) + ')'; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.restore();
+    const cta = pad.connected ? 'PRESS  A  TO START' : (G.touch ? 'TAP TO START' : 'PRESS  ENTER  TO START');
+    spacedTxt(cta, cx, by + bh / 2, 17, '#fff', 900, 1.5, 'rgba(255,255,255,0.4)');
     zones.push({ x: 0, y: 0, w: W, h: H, act: () => onPress('enter') });
-    txt(ctx, '桜 dusk · 名阪 sodium · 鋼 green hell · ネオ open city — drive, roam & run', W / 2, H - 24, 12, 'rgba(255,255,255,0.5)');
+
+    // footer
+    txt(ctx, 'sakura dusk · sodium nights · the green hell · a whole city to roam',
+      cx, H - 22, 12, 'rgba(255,255,255,0.5)');
   }
 
   // -------- track select: minimap silhouettes side by side
   function drawTrackSel() {
     ctx.fillStyle = 'rgba(14,5,28,0.55)';
     ctx.fillRect(0, 0, W, H);
-    txt(ctx, 'コース COURSE', W / 2, H * 0.12, 28, '#fff', 'center', 900, 16, '#b06bff');
+    txt(ctx, 'SELECT COURSE', W / 2, H * 0.12, 28, '#fff', 'center', 900, 16, '#b06bff');
     const ids = Object.keys(TRACKS);
     const cwf = ids.length >= 4 ? 0.225 : ids.length > 2 ? 0.295 : 0.42;
     const cw = Math.min(260, W * cwf), ch = Math.min(250, H * 0.44);
@@ -5878,7 +5956,7 @@ function startGame() {
     }
     const bw = 240, bx = W / 2 - bw / 2, by = Math.min(H - 70, y + ch + 40);
     panel(ctx, bx, by, bw, 48, '#7dffb0', '#7dffb0');
-    txt(ctx, '選択 SELECT →', W / 2, by + 25, 18, '#7dffb0', 'center', 900, 8);
+    txt(ctx, 'SELECT →', W / 2, by + 25, 18, '#7dffb0', 'center', 900, 8);
     zones.push({ x: bx, y: by, w: bw, h: 48, act: () => onPress('enter') });
     if (pad.connected)
       txt(ctx, 'STICK/D-PAD switch · A select · B back', W / 2, H - 18, 12, 'rgba(255,255,255,0.55)');
@@ -5891,7 +5969,7 @@ function startGame() {
     ctx.fillRect(0, 0, W, H);
     const R = roster();
     G.sel = clamp(G.sel, 0, R.length - 1);
-    txt(ctx, TRACKS[G.track].cat === 'gt' ? 'GTガレージ GT GARAGE' : 'ガレージ GARAGE',
+    txt(ctx, TRACKS[G.track].cat === 'gt' ? 'GT GARAGE' : 'GARAGE',
       W / 2, H * 0.09, 28, '#fff', 'center', 900, 16, '#b06bff');
     const spec = R[G.sel];
     const cy = H * 0.33;
@@ -5924,7 +6002,7 @@ function startGame() {
     ctx.restore();
 
     txt(ctx, spec.name, W / 2, cy + 92 * k, 32, '#fff', 'center', 900, 14, spec.glow);
-    txt(ctx, spec.jp + ' · ' + spec.tag, W / 2, cy + 120 * k, 13, '#ffb7d5', 'center', 800);
+    txt(ctx, spec.tag, W / 2, cy + 120 * k, 12.5, '#ffb7d5', 'center', 800);
 
     // stat bars
     const rows = [['POWER', spec.stats.power], ['GRIP', spec.stats.grip], ['DRIFT', spec.stats.drift]];
@@ -5965,7 +6043,7 @@ function startGame() {
     // select
     const bw = 220, bx2 = W / 2 - bw / 2, by2 = Math.min(H - 62, cy + 266 * k);
     panel(ctx, bx2, by2, bw, 46, '#ffd166', '#ffd166');
-    txt(ctx, '決定 SELECT →', W / 2, by2 + 24, 17, '#ffd166', 'center', 900, 8);
+    txt(ctx, 'SELECT →', W / 2, by2 + 24, 17, '#ffd166', 'center', 900, 8);
     zones.push({ x: bx2, y: by2, w: bw, h: 46, act: () => onPress('enter') });
     if (pad.connected)
       txt(ctx, 'STICK/D-PAD choose · A select · B back', W / 2, H - 18, 12, 'rgba(255,255,255,0.55)');
@@ -5976,13 +6054,13 @@ function startGame() {
   function drawMode() {
     ctx.fillStyle = 'rgba(14,5,28,0.55)';
     ctx.fillRect(0, 0, W, H);
-    txt(ctx, 'モード MODE', W / 2, H * 0.16, 28, '#fff', 'center', 900, 16, '#b06bff');
+    txt(ctx, 'SELECT MODE', W / 2, H * 0.16, 28, '#fff', 'center', 900, 16, '#b06bff');
     const isN = G.track === 'nring';
     const defs = [
       isN
-        ? ['free', 'ツーリスト走行', 'TOURIST DRIVE', 'lapping day — hunt and pass the traffic']
-        : ['free', 'フリー走行', 'FREESTYLE', 'chain drifts, chase the combo'],
-      ['tt', 'タイムアタック', 'TIME ATTACK',
+        ? ['free', 'TOURIST DRIVE', 'lapping day — hunt and pass the traffic']
+        : ['free', 'FREESTYLE', 'chain drifts, chase the combo'],
+      ['tt', 'TIME ATTACK',
         isN ? 'closed track, zero traffic — race your ghost' : 'race your ghost for the lap record']
     ];
     const cw = Math.min(300, W * 0.42), ch = 168;
@@ -5990,12 +6068,11 @@ function startGame() {
     const totW = cw * 2 + gap;
     let x = W / 2 - totW / 2;
     const y = H * 0.30;
-    for (const [id, jp, en, desc] of defs) {
+    for (const [id, en, desc] of defs) {
       const on = G.mode === id;
       panel(ctx, x, y, cw, ch, on ? '#ffd166' : 'rgba(255,255,255,0.25)', on ? '#ffd166' : null);
-      txt(ctx, jp, x + cw / 2, y + 46, 22, on ? '#ffd166' : '#cfd8ff', 'center', 900, on ? 10 : 0);
-      txt(ctx, en, x + cw / 2, y + 78, 17, '#fff', 'center', 800);
-      wrapText(desc, x + cw / 2, y + 112, cw - 36, 13, 'rgba(255,255,255,0.7)');
+      txt(ctx, en, x + cw / 2, y + 62, 24, on ? '#ffd166' : '#fff', 'center', 900, on ? 12 : 0);
+      wrapText(desc, x + cw / 2, y + 100, cw - 36, 14, 'rgba(255,255,255,0.72)');
       const id2 = id;
       zones.push({
         x, y, w: cw, h: ch,
@@ -6005,7 +6082,7 @@ function startGame() {
     }
     const bw = 240, bx = W / 2 - bw / 2, by = y + ch + 44;
     panel(ctx, bx, by, bw, 48, '#7dffb0', '#7dffb0');
-    txt(ctx, '発進 START →', W / 2, by + 25, 18, '#7dffb0', 'center', 900, 8);
+    txt(ctx, 'START →', W / 2, by + 25, 18, '#7dffb0', 'center', 900, 8);
     zones.push({ x: bx, y: by, w: bw, h: 48, act: () => onPress('enter') });
     if (pad.connected)
       txt(ctx, 'STICK/D-PAD switch · A start · B back', W / 2, H - 18, 12, 'rgba(255,255,255,0.55)');
@@ -6064,7 +6141,7 @@ function startGame() {
         ctx.beginPath(); ctx.arc(hx, hy, R2, 0, TAU); ctx.stroke();
         ctx.setLineDash([]);
         ctx.globalAlpha = 0.3;
-        txt(ctx, G.onFoot ? '歩く' : 'ステア', hx, hy, 12, '#fff', 'center', 800);
+        txt(ctx, G.onFoot ? 'MOVE' : 'STEER', hx, hy, 11, '#fff', 'center', 800);
         ctx.restore();
       }
     }
@@ -6079,7 +6156,7 @@ function startGame() {
       ctx.globalAlpha = 0.34; ctx.fillStyle = '#7dffb0';
       ctx.beginPath(); ctx.arc(fx, fy, fr, 0, TAU); ctx.fill();
       ctx.globalAlpha = 0.92;
-      txt(ctx, G.onFoot ? '乗る' : '降りる', fx, fy + 1, fr * 0.42, '#0c1a10', 'center', 900);
+      txt(ctx, G.onFoot ? 'ENTER' : 'EXIT', fx, fy + 1, fr * 0.4, '#0c1a10', 'center', 900);
       ctx.restore();
       zones.push({ x: fx - fr * 1.15, y: fy - fr * 1.15, w: fr * 2.3, h: fr * 2.3, act: () => CITY.enterExit() });
     }
