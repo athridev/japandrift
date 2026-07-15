@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Adam's Race Room — Drift, GT & Open World</title>
-<meta name="description" content="Adam's Race Room — drift Ebisu & Meihan, hunt tourist traffic on a real 1:1 Nürburgring Nordschleife, or go free-roam in Neo City: walk, jack cars and dodge the police. 10 machines, 3 circuits + open-world city.">
+<meta name="description" content="Adam's Race Room — drift Ebisu & Meihan, chase a fast GT field on a real 1:1 Nürburgring Nordschleife, or go free-roam in Neo City: walk, jack cars and dodge the police. 10 machines, 3 circuits + open-world city.">
 <meta property="og:title" content="Adam's Race Room">
 <meta property="og:description" content="Drift Ebisu & Meihan, chase the Nürburgring, or roam Neo City on foot and by car. 10 machines, 4 worlds.">
 <meta property="og:type" content="website">
@@ -352,7 +352,7 @@ const TRACKS = {
   },
   nring: {
     name: 'NORDSCHLEIFE', jp: 'EIFEL · GERMANY', cat: 'gt', style: 'eifel',
-    len: '20.7 km', desc: 'the Green Hell — real 1:1 layout, tourist traffic',
+    len: '20.7 km', desc: 'the Green Hell — real 1:1 layout, fast GT traffic',
     build: buildNring
   },
   city: {
@@ -1900,7 +1900,7 @@ function startGame() {
     },
     // swap into an empty (abandoned/parked) car with no crime charge
     enterVehicle(v) {
-      this.cars.push({ spec: car.spec, x: car.x, y: car.y, h: car.h, dir: { x: Math.cos(car.h), y: Math.sin(car.h) }, speed: 0, vx: 0, vy: 0, state: 'parked', lastK: 99999, braking: false });
+      this.cars.push({ spec: car.spec, x: car.x, y: car.y, h: car.h, dir: { x: Math.cos(car.h), y: Math.sin(car.h) }, speed: 0, vx: 0, vy: 0, state: 'parked', braking: false });
       const idx = this.cars.indexOf(v); if (idx >= 0) this.cars.splice(idx, 1);
       car.spec = v.spec; SND.setCar(v.spec);
       car.x = v.x; car.y = v.y; car.h = v.h;
@@ -1981,7 +1981,7 @@ function startGame() {
       return {
         spec, x, y, h: Math.atan2(dir.y, dir.x), vx: 0, vy: 0,
         dir, speed: rnd(150, 210), cruise: rnd(170, 230),
-        lastK: 99999, braking: false, state: 'drive', hitT: 0
+        braking: false, state: 'drive', hitT: 0
       };
     },
     spawnCarNear(cx, cy) {
@@ -2003,15 +2003,38 @@ function startGame() {
         v.hitT = Math.max(0, (v.hitT || 0) - dt);
         if (v.police) continue;   // pursuit AI drives cop cars (updateCops)
         if (v.state === 'wrecked' || v.state === 'parked') { v.vx = 0; v.vy = 0; continue; }
+        // ---- turns happen AT the intersection centre, not mid-block ----
+        // A car may only turn on a grid node (a road centreline = multiple of
+        // BLOCK on its travel axis). We detect the exact frame it crosses one,
+        // pivot the car onto it, then arc through the corner — instead of the
+        // old mid-block flip that snapped 90° and slid half a block sideways.
         const along = v.dir.x !== 0 ? v.x : v.y;
-        const kA = Math.round(along / B);
-        if (kA !== v.lastK) {
-          v.lastK = kA;
+        const dirA = v.dir.x !== 0 ? v.dir.x : v.dir.y;      // ±1 along travel axis
+        if (v.prevAlong === undefined) v.prevAlong = along;
+        const nextC = (dirA > 0 ? Math.ceil(v.prevAlong / B) : Math.floor(v.prevAlong / B)) * B;
+        const crossed = dirA > 0 ? (along >= nextC && v.prevAlong < nextC)
+                                 : (along <= nextC && v.prevAlong > nextC);
+        if (crossed) {
           const r = Math.random();
-          if (r > 0.72) { const d = v.dir; v.dir = r > 0.86 ? { x: d.y, y: -d.x } : { x: -d.y, y: d.x }; }
-          v.h = Math.atan2(v.dir.y, v.dir.x);
+          // ~28% take a left/right — but never start a turn while still mid-corner
+          // (after a turn the re-based prevAlong sits ~laneOff before the road it
+          // just entered, so the node it left would otherwise re-fire ~0.2s later)
+          if (r > 0.72 && (v.turnT || 0) <= 0) {
+            if (v.dir.x !== 0) v.x = nextC; else v.y = nextC;   // pivot on the node
+            const d = v.dir;
+            v.dir = r > 0.86 ? { x: d.y, y: -d.x } : { x: -d.y, y: d.x };
+            v.turnT = 0.45;                         // ease off + steer through it
+          }
+          v.prevAlong = v.dir.x !== 0 ? v.x : v.y;  // re-base for the (maybe new) axis
+        } else {
+          v.prevAlong = along;
         }
-        let spd = v.cruise;
+        // rotate the body smoothly toward the grid heading (no instant snap)
+        const hT = Math.atan2(v.dir.y, v.dir.x), dh = angNorm(hT - v.h);
+        v.h += dh * clamp(dt * 7.5, 0, 1);
+        v.steerV = clamp(dh * 1.4, -1, 1);
+        v.turnT = Math.max(0, (v.turnT || 0) - dt);
+        let spd = v.cruise * (v.turnT > 0 ? 0.6 : 1);   // slow for the corner
         const ahead = (ox, oy) => {
           const rx = ox - v.x, ry = oy - v.y;
           const fwd = rx * v.dir.x + ry * v.dir.y, side = Math.abs(rx * -v.dir.y + ry * v.dir.x);
@@ -2101,7 +2124,7 @@ function startGame() {
     },
     jack(v) {
       // leave your old ride behind as an abandoned parked car
-      this.cars.push({ spec: car.spec, x: car.x, y: car.y, h: car.h, dir: { x: Math.cos(car.h), y: Math.sin(car.h) }, speed: 0, vx: 0, vy: 0, state: 'parked', lastK: 99999, braking: false });
+      this.cars.push({ spec: car.spec, x: car.x, y: car.y, h: car.h, dir: { x: Math.cos(car.h), y: Math.sin(car.h) }, speed: 0, vx: 0, vy: 0, state: 'parked', braking: false });
       // drop into the civilian car
       const idx = this.cars.indexOf(v); if (idx >= 0) this.cars.splice(idx, 1);
       car.spec = v.spec; SND.setCar(v.spec);
@@ -2370,7 +2393,7 @@ function startGame() {
         list.push({
           d: (q.x - cam.x) ** 2 + (q.y - cam.y) ** 2,
           draw: gg => {
-            drawCarWorld(gg, q.x, q.y, q.h, q.spec, { brake: q.braking });
+            drawCarWorld(gg, q.x, q.y, q.h, q.spec, { brake: q.braking, steer: q.steerV || 0 });
             if (q.police) {   // flashing red/blue roof bar
               const on = ((G.t * 8) | 0) % 2 === 0;
               gg.save(); gg.shadowBlur = 12;
@@ -3879,12 +3902,12 @@ function startGame() {
 
   // ---------------------------------------------- tourist traffic
   // Touristenfahrten: the Nordschleife's public lapping day. A field of
-  // slower drivers — JDM tourists and GT weekend warriors — circulates
-  // the full 20.7 km. They brake into corners like real drivers, keep
-  // right and flick the indicator on when you close in ('Ring etiquette),
-  // and the quick ones swing left to pass the slow ones. Contact is soft
-  // but costs your combo — thread the gap cleanly and the pass pays.
-  // A real Touristenfahrten field: 46 cars STREAMED around the player
+  // a quick GT field circulating the full 20.7 km. They drive a real
+  // racing line — sweeping out to the apex of each corner and braking into
+  // it like proper racers — carry serious corner speed, and the faster ones
+  // reel in and pass the slower ones on the open side. Contact is soft but
+  // costs your combo — thread the gap cleanly and the pass pays.
+  // A full race field: 46 cars STREAMED around the player
   // rather than sprinkled over the whole 20.7 km. Spread evenly over the
   // full lap you'd meet a car every 1.5 km (i.e. almost never); keeping
   // them inside a ~10 km rolling window puts one every ~200 m, so there
@@ -3909,10 +3932,10 @@ function startGame() {
     const base = car ? car.prog : TRACK.startIdx;
     t.idx = (((base + rel) % N) + N) % N;
     t.spec = CARS[(Math.random() * CARS.length) | 0];
-    t.pace = rnd(0.40, 0.78);           // most are slower than you — that's the point
-    t.home = rnd(-20, 46);              // keep-right bias
-    t.lat = t.latT = t.home;
-    t.v = 190;
+    t.pace = rnd(0.9, 1.08);            // a quick GT field — all genuinely fast
+    t.lat = t.latT = 0;                 // they race the line, not the kerb
+    t.v = 360;
+    t.passSide = 0;
     t.wasAhead = null;                  // re-latch, so recycling can't fake a pass
     t.lastPassT = -99;
     t.blink = 0; t.hitT = 0; t.whooshT = 0; t.steerV = 0; t.braking = false;
@@ -3949,39 +3972,48 @@ function startGame() {
       t.hitT = Math.max(0, t.hitT - dt);
       t.whooshT = Math.max(0, t.whooshT - dt);
       const i0 = Math.floor(t.idx) % N;
-      // corner speed: read the curvature ahead and brake into it
-      let curv = 0;
-      const look = 4 + Math.min(14, (t.v / 60) | 0);
-      for (let k = 1; k <= look; k++) curv = Math.max(curv, Math.abs(P[(i0 + k) % N].curv));
-      let tv = t.pace * lerp(690, 195, clamp(curv / 0.8, 0, 1));
-      // 'Ring etiquette: keep right + indicator when the player closes in
-      let latT = t.home;
-      const rel = (i0 - car.prog + N) % N;      // samples this car is ahead
-      if (rel < N / 2 && rel < 36 && car.speed > t.v + 40) {
-        latT = P[i0].w / 2 - 42;
-        t.blink = 0.5;
+      // read the corner ahead: its severity sets the speed, its sign the apex
+      let curv = 0, sgn = 0;
+      const look = 5 + Math.min(16, (t.v / 55) | 0);
+      for (let k = 1; k <= look; k++) {
+        const c = P[(i0 + k) % N].curv, ac = Math.abs(c);
+        if (ac > curv) { curv = ac; sgn = Math.sign(c); }
       }
-      // traffic-on-traffic: follow the car ahead or swing left and pass
+      const cn = clamp(curv / 0.8, 0, 1);
+      let tv = t.pace * lerp(770, 300, cn);     // a quick GT field, carrying corner speed
+      const rel = (i0 - car.prog + N) % N;      // samples ahead of player (kept for scoring)
+      const halfW = P[i0].w / 2;
+      // smart line: sweep to the apex of the corner ahead, straighten on straights
+      let latT = sgn * clamp(curv / 0.5, 0, 1) * Math.max(0, halfW - 50);
+      // racecraft: find the NEAREST car ahead and either pass it or tuck in behind
+      let lead = null, leadGap = 99;
       for (const o of traffic) {
         if (o === t) continue;
         const gap = (Math.floor(o.idx) - i0 + N) % N;
-        if (gap > 0 && gap < 20) {
-          if (t.pace > o.pace + 0.08 && gap < 14) latT = -(P[i0].w / 2 - 46);
-          if (gap < 7 && Math.abs(o.lat - t.lat) < 34) tv = Math.min(tv, o.v - 10);
-        }
+        if (gap > 0 && gap < 20 && gap < leadGap) { lead = o; leadGap = gap; }
       }
-      t.latT = latT;
+      if (lead && t.pace > lead.pace + 0.05 && leadGap < 15) {
+        // commit to a pass side (the one we're already biased to) and hold it —
+        // no flip-flopping when the leader wanders across the centreline
+        if (!t.passSide) t.passSide = (t.lat >= lead.lat ? 1 : -1);
+        latT = t.passSide * Math.max(0, halfW - 50);
+        t.blink = 0.5;
+      } else {
+        t.passSide = 0;
+        if (lead && leadGap < 7 && Math.abs(lead.lat - t.lat) < 34) tv = Math.min(tv, lead.v - 6);
+      }
+      t.latT = clamp(latT, -(halfW - 40), halfW - 40);
       t.braking = tv < t.v - 40;
-      t.v = Math.max(60, t.v + clamp(tv - t.v, -560 * dt, 230 * dt));
+      t.v = Math.max(90, t.v + clamp(tv - t.v, -640 * dt, 340 * dt));
       t.idx += (t.v * dt) / (P[i0].segLen || 80);
       while (t.idx >= N) t.idx -= N;
       while (t.idx < 0) t.idx += N;
-      const dLat = (t.latT - t.lat) * clamp(dt * 1.6, 0, 1);
+      const dLat = (t.latT - t.lat) * clamp(dt * 2.0, 0, 1);
       t.lat += dLat;
       const s = trafficPlace(t);
       const th = Math.atan2(lerp(s.a.ty, s.b.ty, s.f), lerp(s.a.tx, s.b.tx, s.f));
       t.h += angNorm(th - t.h) * clamp(dt * 7, 0, 1);
-      t.steerV = clamp(dLat * 0.4, -1, 1);
+      t.steerV = clamp(dLat * 0.35 + sgn * cn * 0.35, -1, 1);
 
       // ----- player interaction: whoosh, contact, overtake scoring
       const dx = t.x - car.x, dy = t.y - car.y, d2 = dx * dx + dy * dy;
@@ -5293,7 +5325,7 @@ function startGame() {
     } else if (trafficOn()) {
       // kept as short as the old freestyle line — it shares the bottom
       // edge with the centred controls hint and the touch buttons
-      txt(ctx, 'TOURIST DRIVE · ' + kmLbl + ' · PASS ' + score.passes,
+      txt(ctx, 'GT TRAFFIC · ' + kmLbl + ' · PASS ' + score.passes,
         20, H - 22, 12, 'rgba(255,255,255,0.6)', 'left');
     } else {
       txt(ctx, 'FREESTYLE · BEST CHAIN ' + Math.round(Math.max(score.best, tsave().bestChain || 0)).toLocaleString(),
@@ -5808,7 +5840,7 @@ function startGame() {
     const isN = G.track === 'nring';
     const defs = [
       isN
-        ? ['free', 'TOURIST DRIVE', 'lapping day — hunt and pass the traffic']
+        ? ['free', 'GT TRAFFIC', 'a fast GT field — chase down and pass the pack']
         : ['free', 'FREESTYLE', 'chain drifts, chase the combo'],
       ['tt', 'TIME ATTACK',
         isN ? 'closed track, zero traffic — race your ghost' : 'race your ghost for the lap record']
