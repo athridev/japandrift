@@ -5849,22 +5849,26 @@ function startGame() {
     spacedTxt('EBISU   MEIHAN   NORDSCHLEIFE   NEO CITY', cx, cy + 18 * s + bob,
       Math.min(14 * s, W * 0.032), 'rgba(255,255,255,0.82)', 800, 2 * s, 0);
 
-    // feature chips
+    // feature chips — use the four-chip row only if it actually fits,
+    // otherwise fall back to a single combined chip
     const chips = ['10 MACHINES', '4 WORLDS', 'POLICE & CHAOS', 'QURAN PLAYER'];
-    if (W > 460) {
-      ctx.font = FONT(800, 12);
-      const gap = 12;
-      let total = 0; const ws2 = chips.map(c => ctx.measureText(c).width + 26);
-      total = ws2.reduce((a, b) => a + b, 0) + gap * (chips.length - 1);
-      let x = cx - total / 2;
+    const gap = 12;
+    ctx.font = FONT(800, 12);
+    const ws2 = chips.map(c => ctx.measureText(c).width + 26);
+    const rowW = ws2.reduce((a, b) => a + b, 0) + gap * (chips.length - 1);
+    if (rowW + 28 <= W) {
+      let x = cx - rowW / 2;
       const accents = ['#ff7ab8', '#ffd166', '#ff5a5a', '#7dffb0'];
       for (let i = 0; i < chips.length; i++) { chip(x + ws2[i] / 2, cy + 52 * s, chips[i], accents[i]); x += ws2[i] + gap; }
     } else {
       chip(cx, cy + 52 * s, '10 CARS · 4 WORLDS · QURAN', '#7dffb0');
     }
 
-    // CTA button (pulses)
-    const bw = clamp(300 * s, 220, 340), bh = 56, bx = cx - bw / 2, by = H * 0.72;
+    // CTA button (pulses) — width fits its label so the text never spills
+    const cta = pad.connected ? 'PRESS  A  TO START' : (G.touch ? 'TAP TO START' : 'PRESS  ENTER  TO START');
+    ctx.font = FONT(900, 17);
+    const bw = clamp(Math.max(300 * s, ctx.measureText(cta).width + 56), 200, Math.min(360, W - 32));
+    const bh = 56, bx = cx - bw / 2, by = H * 0.72;
     const pulse = 0.5 + 0.5 * Math.sin(G.t * 3.2);
     ctx.save();
     rr(ctx, bx, by, bw, bh, bh / 2);
@@ -5875,12 +5879,11 @@ function startGame() {
     ctx.shadowColor = '#ff7ab8'; ctx.shadowBlur = 10 + pulse * 14;
     ctx.strokeStyle = 'rgba(255,255,255,' + (0.55 + pulse * 0.4) + ')'; ctx.lineWidth = 1.6; ctx.stroke();
     ctx.restore();
-    const cta = pad.connected ? 'PRESS  A  TO START' : (G.touch ? 'TAP TO START' : 'PRESS  ENTER  TO START');
     spacedTxt(cta, cx, by + bh / 2, 17, '#fff', 900, 1.5, 'rgba(255,255,255,0.4)');
     zones.push({ x: 0, y: 0, w: W, h: H, act: () => onPress('enter') });
 
-    // footer
-    txt(ctx, 'sakura dusk · sodium nights · the green hell · a whole city to roam',
+    // footer (shortened on a phone so it never runs off the edges)
+    txt(ctx, W < 560 ? 'drift · race · roam' : 'sakura dusk · sodium nights · the green hell · a whole city to roam',
       cx, H - 22, 12, 'rgba(255,255,255,0.5)');
   }
 
@@ -6071,7 +6074,11 @@ function startGame() {
     for (const [id, en, desc] of defs) {
       const on = G.mode === id;
       panel(ctx, x, y, cw, ch, on ? '#ffd166' : 'rgba(255,255,255,0.25)', on ? '#ffd166' : null);
-      txt(ctx, en, x + cw / 2, y + 62, 24, on ? '#ffd166' : '#fff', 'center', 900, on ? 12 : 0);
+      // shrink the name to fit the card (a phone card is ~134px wide)
+      let mfs = 24; ctx.font = FONT(900, mfs);
+      const mnw = ctx.measureText(en).width, mmax = cw - 22;
+      if (mnw > mmax) mfs = Math.max(13, mfs * mmax / mnw);
+      txt(ctx, en, x + cw / 2, y + 62, mfs, on ? '#ffd166' : '#fff', 'center', 900, on ? 12 : 0);
       wrapText(desc, x + cw / 2, y + 100, cw - 36, 14, 'rgba(255,255,255,0.72)');
       const id2 = id;
       zones.push({
