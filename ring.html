@@ -51,6 +51,9 @@ body.inmenu .hud,body.inmenu #wrong{display:none}
 @keyframes blink{50%{opacity:.25}}
 #flash{position:fixed;inset:0;pointer-events:none;z-index:25;opacity:0;transition:opacity .12s;
   background:radial-gradient(ellipse at center,transparent 52%,rgba(255,44,32,.5) 100%)}
+#corner{top:max(52px,calc(env(safe-area-inset-top) + 40px));left:50%;transform:translateX(-50%);
+  font-size:15px;font-weight:800;letter-spacing:4px;color:#cfe6ff;text-shadow:0 0 14px #55a0ff66,0 2px 8px #000;
+  opacity:0;transition:opacity .5s}
 #toast{position:fixed;top:22%;left:50%;transform:translateX(-50%);font-size:22px;font-weight:800;letter-spacing:2px;
   color:var(--yl);text-shadow:0 2px 12px #000;opacity:0;transition:opacity .4s;text-align:center}
 #count{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:40;pointer-events:none}
@@ -136,6 +139,7 @@ body.touch #hudBL{display:none}
   TC <span id="tcS" class="on">ON</span>&nbsp;&nbsp;ABS <span id="absS" class="on">ON</span>&nbsp;&nbsp;GEARBOX <span id="atS" class="on">AUTO</span>&nbsp;&nbsp;<span id="fpsS"></span>
 </div>
 <div id="wrong">WRONG WAY — R TO RESET</div>
+<div class="hud" id="corner"></div>
 <div id="flash"></div>
 <div id="toast"></div>
 <div id="count"><span></span></div>
@@ -710,6 +714,43 @@ const trackGroup = new THREE.Group(); scene.add(trackGroup);
   pines.castShadow = blobs.castShadow = true;
   scene.add(pines, blobs);
 
+  // the legendary corner names, as blue trackside boards at their real
+  // lap fractions (start = Döttinger Höhe → T13 → …)
+  const CORNERS = [
+    [.015, 'TIERGARTEN'], [.035, 'HOHENRAIN'], [.05, 'HATZENBACH'], [.09, 'HOCHEICHEN'],
+    [.12, 'QUIDDELBACHER HÖHE'], [.135, 'FLUGPLATZ'], [.165, 'SCHWEDENKREUZ'], [.195, 'AREMBERG'],
+    [.225, 'FUCHSRÖHRE'], [.26, 'ADENAUER FORST'], [.30, 'METZGESFELD'], [.325, 'KALLENHARD'],
+    [.36, 'WEHRSEIFEN'], [.385, 'BREIDSCHEID'], [.40, 'EX-MÜHLE'], [.44, 'BERGWERK'],
+    [.49, 'KESSELCHEN'], [.52, 'KLOSTERTAL'], [.555, 'KARUSSELL'], [.60, 'HOHE ACHT'],
+    [.635, 'WIPPERMANN'], [.66, 'ESCHBACH'], [.685, 'BRÜNNCHEN'], [.72, 'PFLANZGARTEN'],
+    [.77, 'STEFAN-BELLOF-S'], [.80, 'SCHWALBENSCHWANZ'], [.84, 'GALGENKOPF'],
+    [.88, 'DÖTTINGER HÖHE'], [.97, 'ANTONIUSBUCHE']
+  ];
+  const signPost = new THREE.CylinderGeometry(.06, .06, 2.1, 6);
+  const signGeo2 = new THREE.PlaneGeometry(3.4, .92);
+  window.SIGNS = [];
+  for (const [f, name] of CORNERS) {
+    const i = Math.round(f * N) % N;
+    const tex = mkTex(256, 64, (c, w, h) => {
+      c.fillStyle = '#1a4fa0'; c.fillRect(0, 0, w, h);
+      c.strokeStyle = '#f2f4f8'; c.lineWidth = 5; c.strokeRect(4, 4, w - 8, h - 8);
+      c.fillStyle = '#f2f4f8';
+      c.font = `900 ${Math.max(17, 30 - Math.max(0, name.length - 10) * 1.1)}px sans-serif`;
+      c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(name, w / 2, h / 2 + 1);
+    });
+    const side = Math.sign(T.curv[i] || 1) || 1;          // inside of the corner (apex side)
+    const d = T.half[i] + 2.4;
+    const x = T.px[i] + T.nx[i] * side * d, z = T.pz[i] + T.nz[i] * side * d, y = T.py[i];
+    const board = new THREE.Mesh(signGeo2, new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+    board.position.set(x, y + 2.15, z);
+    board.rotation.y = Math.atan2(-T.tx[i], -T.tz[i]);
+    const post = new THREE.Mesh(signPost, new THREE.MeshStandardMaterial({ color: 0x384049, roughness: .6 }));
+    post.position.set(x, y + 1.05, z);
+    scene.add(board, post);
+    SIGNS.push({ i, name });
+  }
+  SIGNS.sort((a, b) => a.i - b.i);
+
   // brake-marker boards (100/200/300) before every heavy braking zone
   const mkBoard = label => mkTex(128, 96, (c, w, h) => {
     c.fillStyle = '#f2f2ef'; c.fillRect(0, 0, w, h);
@@ -997,6 +1038,15 @@ function buildCarMesh(spec) {
   const exhaust = new THREE.CylinderGeometry(.055, .055, .14, 10); exhaust.rotateX(Math.PI / 2);
   const exMat = new THREE.MeshStandardMaterial({ color: 0x53565c, metalness: .95, roughness: .3 });
   add(exhaust, exMat, .32, .3, -2.36); add(exhaust, exMat, -.32, .3, -2.36);
+  const flameMat = new THREE.MeshStandardMaterial({
+    color: 0x331602, emissive: 0xff8c2a, emissiveIntensity: 4, transparent: true, opacity: .95
+  });
+  const flames = [];
+  for (const fx2 of [.32, -.32]) {
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(.13, .13), flameMat);
+    fl.position.set(fx2, .3, -2.47); fl.visible = false;
+    g.add(fl); flames.push(fl);
+  }
   const headMat = new THREE.MeshStandardMaterial({ color: 0xeaf4ff, emissive: 0xdfefff, emissiveIntensity: 2.2 });
   add(new THREE.BoxGeometry(.44, .05, .06), headMat, .48, .47, 2.28, 0, 0, .08);   // DRL strips
   add(new THREE.BoxGeometry(.44, .05, .06), headMat, -.48, .47, 2.28, 0, 0, -.08);
@@ -1037,7 +1087,7 @@ function buildCarMesh(spec) {
       add(new THREE.BoxGeometry(spec.stripe === 'twin' ? .17 : .44, .02, 1.1), accent, sx, hoodY - .07, 1.72, .22);
     }
   }
-  return { group: g, wheels, tail, disc: discMat };
+  return { group: g, wheels, tail, disc: discMat, flames };
 }
 
 // ==================================================================
@@ -1296,6 +1346,7 @@ class PlayerCar {
     this.odo = 0; this.sPrev = 0; this.laps = 0; this.wrongT = 0;
     const built = buildCarMesh(spec);
     this.mesh = built.group; this.wheels = built.wheels; this.tail = built.tail; this.discMat = built.disc;
+    this.flames = built.flames; this.flameT = 0;
     scene.add(this.mesh);
     this.visRoll = 0; this.visPitch = 0; this.wheelSpin = 0; this.draft = 0;
   }
@@ -1329,6 +1380,7 @@ class PlayerCar {
       if (ng === this.gear || this.shiftT > 0) return;
       this.gear = ng; this.shiftT = .16; this.holdT = 0;
       if (this.voice) this.voice.shiftCut(d < 0, this.rpm / this.red);
+      if (d < 0 || this.rpm > this.red * .8) this.flameT = .16;   // exhaust flames
       rumble(.2, .45, 70);
     };
     if (inp.shiftUp) doShift(1);
@@ -1479,6 +1531,12 @@ class PlayerCar {
     }
     this.tail.material.emissiveIntensity = this.brakeOn ? 3.2 : .45;
     this.discMat.emissiveIntensity = this.brkS * 2.6 * Math.min(1, Math.abs(this.vx) / 30);
+    this.flameT = Math.max(0, this.flameT - dt);
+    const lit = this.flameT > 0;
+    for (const f of this.flames) {
+      f.visible = lit && Math.random() < .85;
+      if (lit) f.scale.setScalar(.7 + Math.random() * 1.1);
+    }
   }
 }
 
@@ -1613,6 +1671,47 @@ const skidmarks = (() => {
       const rx = px - fx * 1.45, rz = pz - fz * 1.45;
       lay(0, rx + lx * .8, py + .035, rz + lz * .8);
       lay(1, rx - lx * .8, py + .035, rz - lz * .8);
+    }
+  };
+})();
+
+// ==================================================================
+// SPARKS — orange additive shower for armco grinding
+// ==================================================================
+const sparks = (() => {
+  const MAXP = 160;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(MAXP * 3);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const scv = document.createElement('canvas'); scv.width = scv.height = 32;
+  const sc = scv.getContext('2d');
+  const sg = sc.createRadialGradient(16, 16, 1, 16, 16, 15);
+  sg.addColorStop(0, 'rgba(255,220,150,1)'); sg.addColorStop(.4, 'rgba(255,150,60,.7)'); sg.addColorStop(1, 'rgba(255,120,40,0)');
+  sc.fillStyle = sg; sc.fillRect(0, 0, 32, 32);
+  const mat = new THREE.PointsMaterial({
+    map: new THREE.CanvasTexture(scv), size: .22, transparent: true, opacity: .95,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+  });
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false; scene.add(pts);
+  const P = []; for (let i = 0; i < MAXP; i++) P.push({ life: 0, x: 0, y: -999, z: 0, vx: 0, vy: 0, vz: 0 });
+  let cursor = 0;
+  return {
+    emit(x, y, z, bx, bz) {
+      const p = P[cursor++ % MAXP];
+      p.life = .25 + Math.random() * .2;
+      p.x = x; p.y = y; p.z = z;
+      p.vx = bx * (5 + Math.random() * 9) + (Math.random() - .5) * 4;
+      p.vy = .5 + Math.random() * 3;
+      p.vz = bz * (5 + Math.random() * 9) + (Math.random() - .5) * 4;
+    },
+    update(dt) {
+      for (let i = 0; i < MAXP; i++) {
+        const p = P[i];
+        if (p.life > 0) { p.life -= dt; p.vy -= 14 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; }
+        pos[i * 3] = p.x; pos[i * 3 + 1] = p.life > 0 ? p.y : -999; pos[i * 3 + 2] = p.z;
+      }
+      geo.attributes.position.needsUpdate = true;
     }
   };
 })();
@@ -2119,6 +2218,22 @@ function frame(now) {
     }
     skidmarks.update(!player.onGrass && (sk > .5 || (player.brkS > .85 && spd > 12)),
       player.x, player.mesh.position.y, player.z, player.fx(), player.fz());
+    if (player.railHit > .1 && spd > 8 && surf) {           // armco grinding throws sparks
+      const sgn = Math.sign(surf.lat) || 1;
+      for (let sp = 0; sp < 3; sp++)
+        sparks.emit(player.x + surf.nx * sgn * 1.05, player.mesh.position.y + .35,
+          player.z + surf.nz * sgn * 1.05, -player.fx(), -player.fz());
+    }
+    // corner name callout as you arrive at each legend
+    if (window.SIGNS) {
+      const here = SIGNS.find(s3 => ((player.hint - s3.i + T.N) % T.N) < 10);
+      if (here && frame.lastSign !== here.name) {
+        frame.lastSign = here.name;
+        const el = $('corner'); el.textContent = here.name; el.style.opacity = 1;
+        clearTimeout(frame.cornerT);
+        frame.cornerT = setTimeout(() => el.style.opacity = 0, 2300);
+      }
+    }
     if ((player.onCurb || player.onGrass) && spd > 10) {
       frame.rumT = (frame.rumT || 0) + dt;
       if (frame.rumT > .13) { frame.rumT = 0; rumble(player.onGrass ? .14 : .06, .3, 120); }
@@ -2166,6 +2281,7 @@ function frame(now) {
   }
 
   smoke.update(dt);
+  sparks.update(dt);
   if (state === 'menu') orbitCamera(dt); else updateCamera(dt);
   if (degraded === 0) composer.render(); else renderer.render(scene, camera);
 }
